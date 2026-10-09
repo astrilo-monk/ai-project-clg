@@ -8,6 +8,30 @@ A chess engine built from scratch, plus a teaching layer that helps beginners im
 - Timeline: about 3 weeks, 4 phases
 - Team: buildable solo
 
+## Quick Start
+
+```bash
+python -m venv venv
+venv\Scripts\activate          # Windows
+# source venv/bin/activate     # Mac/Linux
+pip install -r requirements.txt
+
+streamlit run app.py               # play against the engine
+python -m tests.test_engine        # correctness tests
+python -m tests.compare_search     # minimax vs alpha-beta node counts
+```
+
+## Progress
+
+| Phase | Status |
+|---|---|
+| 1. Formulation + board | Done: `docs/formulation.md`, playable board in `app.py` |
+| 2. Engine | Done: evaluation, minimax, alpha-beta, MVV-LVA ordering, quiescence search. Results in `docs/results/search_comparison.md` |
+| 3. Beginner assistant | Not started |
+| 4. Testing + report | Not started |
+
+**Phase 2 headline result:** at depth 3, alpha-beta with move ordering searched **96.4% fewer nodes** than plain minimax (4,296 vs 117,954 across four test positions) and returned the identical evaluation every time.
+
 ---
 
 ## 1. The Golden Rule
@@ -93,7 +117,7 @@ chess-assistant/
 **Goal:** a written problem formulation and a playable board.
 
 Tasks:
-- [ ] Write `docs/formulation.md` covering:
+- [x] Write `docs/formulation.md` covering:
   - **State:** a board position (piece placement, side to move, castling rights, en passant)
   - **Actions:** all legal moves in that position
   - **Transition model:** applying a move produces a new position
@@ -105,7 +129,7 @@ Tasks:
     - Heuristic: positional principles (control the center, develop pieces, king safety)
     - Procedural: how to search the game tree
   - **Why AI:** chess has roughly 10^120 possible games, so brute force is impossible. Heuristic search is required.
-- [ ] Build `app.py`: draw the board with `chess.svg`, choose your move from a dropdown of legal moves, and have the computer reply with a random legal move for now.
+- [x] Build `app.py`: draw the board with `chess.svg`, choose your move from a dropdown of legal moves, and have the computer reply with a random legal move for now.
 
 Note: Streamlit has no built-in clickable chessboard. A dropdown of legal moves is simple and reliable. If you want click-to-move later, switch to pygame.
 
@@ -118,12 +142,14 @@ Note: Streamlit has no built-in clickable chessboard. A dropdown of legal moves 
 **Goal:** an engine that plays sensible chess. This is the core. If you finish this phase, you pass.
 
 Tasks:
-- [ ] `evaluate.py`: material count (P=100, N=320, B=330, R=500, Q=900, K=20000) plus piece-square tables
-- [ ] `search.py`: plain minimax with depth limit
-- [ ] `search.py`: add alpha-beta pruning
-- [ ] `search.py`: count nodes searched, for your report
-- [ ] `ordering.py`: search captures and checks first (MVV-LVA ordering) to speed up alpha-beta
-- [ ] Connect the engine to `app.py`, replacing the random mover
+- [x] `evaluate.py`: material count (P=100, N=320, B=330, R=500, Q=900, K=20000) plus piece-square tables
+- [x] `search.py`: plain minimax with depth limit
+- [x] `search.py`: add alpha-beta pruning
+- [x] `search.py`: count nodes searched, for your report
+- [x] `ordering.py`: search captures and checks first (MVV-LVA ordering) to speed up alpha-beta
+- [x] Connect the engine to `app.py`, replacing the random mover
+
+Bonus done in Phase 2: quiescence search (captures-only search past the depth limit) to reduce the horizon effect.
 
 Warning: Python is slow. Depth 3 to 4 is realistic. Depth 6 will freeze. Move ordering is your speed fix.
 

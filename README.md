@@ -20,6 +20,8 @@ streamlit run app.py               # play against the engine
 python -m tests.test_engine        # engine tests (9)
 python -m tests.test_assistant     # coach tests (13)
 python -m tests.compare_search     # minimax vs alpha-beta node counts
+python -m tests.benchmark          # vs Stockfish (install Stockfish first; 30 to 60 min)
+python -m tests.make_charts        # report charts
 ```
 
 ## Progress
@@ -29,11 +31,13 @@ python -m tests.compare_search     # minimax vs alpha-beta node counts
 | 1. Formulation + board | Done: `docs/formulation.md`, playable board in `app.py` |
 | 2. Engine | Done: evaluation, minimax, alpha-beta, MVV-LVA ordering, quiescence search. Results in `docs/results/search_comparison.md` |
 | 3. Beginner assistant | Done: move review (Best to Blunder), plain-English explanations, hints, difficulty levels, take back, annotated move history |
-| 4. Testing + report | Not started |
+| 4. Testing + report | Done: Stockfish benchmark, charts, final report (`docs/REPORT.md`), demo script (`docs/DEMO.md`) |
 
-**Read `docs/JOURNAL.md`** for the full architecture, how every module works, and the phase-by-phase log.
+**Read `docs/JOURNAL.md`** for the full architecture, how every module works, and the phase-by-phase log. The final report is `docs/REPORT.md`; the demo script is `docs/DEMO.md`.
 
 **Phase 2 headline result:** at depth 3, alpha-beta with move ordering searched **96.4% fewer nodes** than plain minimax (4,296 vs 117,954 across four test positions) and returned the identical evaluation every time.
+
+**Phase 4 headline result:** in 90 games against Stockfish 16 at its three lowest skill levels, the engine scored **33% at depth 2, 65% at depth 3 and 80% at depth 4**. Details in `docs/results/benchmark_summary.md`.
 
 ---
 
@@ -106,10 +110,13 @@ chess-assistant/
 │   ├── test_engine.py     # Engine correctness tests
 │   ├── test_assistant.py  # Coach tests
 │   ├── compare_search.py  # Minimax vs alpha-beta experiment
-│   └── benchmark.py       # Engine vs Stockfish (Phase 4)
+│   ├── benchmark.py       # Engine vs Stockfish (Phase 4)
+│   └── make_charts.py     # Report charts
 ├── docs/
 │   ├── formulation.md     # Phase 1 write-up
 │   ├── JOURNAL.md         # Architecture + development log
+│   ├── REPORT.md          # Final report
+│   ├── DEMO.md            # 5-minute demo script
 │   └── results/           # Charts and tables
 ├── requirements.txt
 └── README.md
@@ -188,12 +195,13 @@ Tasks:
 **Goal:** evidence and presentation.
 
 Tasks:
-- [ ] Download Stockfish from stockfishchess.org (free). Use it through `chess.engine` at its lowest skill levels.
-- [ ] `benchmark.py`: play 10 games at each of your depths (2, 3, 4) against low-level Stockfish. Record wins, losses, draws.
-- [ ] Measure nodes searched and time per move: minimax vs alpha-beta vs alpha-beta with move ordering
-- [ ] Make charts with matplotlib, save to `docs/results/`
-- [ ] Write the final report
-- [ ] Build slides and rehearse a 5-minute live demo
+- [x] Download Stockfish from stockfishchess.org (free). Use it through `chess.engine` at its lowest skill levels.
+- [x] `benchmark.py`: play 10 games at each of your depths (2, 3, 4) against low-level Stockfish. Record wins, losses, draws.
+- [x] Measure nodes searched and time per move: minimax vs alpha-beta vs alpha-beta with move ordering
+- [x] Make charts with matplotlib, save to `docs/results/`
+- [x] Write the final report
+- [x] Demo script written (`docs/DEMO.md`)
+- [ ] Build slides and rehearse the demo (your job: rehearse at least twice)
 
 **Future scope (for the report, do not build):** opening book, endgame tablebases, machine-learned evaluation, Monte Carlo Tree Search.
 

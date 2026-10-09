@@ -66,11 +66,15 @@ chess-assistant/
 ├── tests/
 │   ├── test_engine.py        9 engine correctness tests
 │   ├── test_assistant.py     13 coach tests
-│   └── compare_search.py     Minimax vs alpha-beta experiment
+│   ├── compare_search.py     Minimax vs alpha-beta experiment
+│   ├── benchmark.py          Our engine vs Stockfish (Phase 4)
+│   └── make_charts.py        Report charts from the CSV results (Phase 4)
 ├── docs/
 │   ├── formulation.md        Phase 1 problem formulation
 │   ├── JOURNAL.md            This file
-│   └── results/              Experiment outputs (CSV + tables)
+│   ├── REPORT.md             Final project report (Phase 4)
+│   ├── DEMO.md               5-minute demo script (Phase 4)
+│   └── results/              Experiment outputs: CSVs, summary tables, PNG charts
 ├── requirements.txt
 └── README.md                 Build guide and progress table
 ```
@@ -290,6 +294,8 @@ This module is a **rule-based expert system**. The engine decides **if** a move 
 | `tests/test_engine.py` | 9 | Start position scores 0; evaluation is colour-symmetric; **alpha-beta returns the same score as minimax**; mate in 1 found for both colours; mate in 2 found; free queen taken; poisoned pawn avoided; caller's board not modified |
 | `tests/test_assistant.py` | 13 | Hanging bishop = Blunder with the right square named; missed free queen; Fool's Mate detected with "Qh4#"; missed mate; mating move praised as Best; early queen tip; knight on rim tip; e4 gets no complaints; Black's moves reviewed too; Scholar's Mate defence explained; "no longer protected" rule; hints find the free queen and the mate |
 | `tests/compare_search.py` | experiment | Node counts and times for minimax vs alpha-beta vs alpha-beta + ordering |
+| `tests/benchmark.py` | experiment | 90 full games against Stockfish 16 at skill levels 0 to 2 (Phase 4) |
+| `tests/make_charts.py` | charts | Turns the CSV results into the PNG charts used in the report |
 
 Run them:
 
@@ -297,13 +303,15 @@ Run them:
 python -m tests.test_engine
 python -m tests.test_assistant
 python -m tests.compare_search
+python -m tests.benchmark          # needs Stockfish installed; 30 to 60 minutes
+python -m tests.make_charts
 ```
 
 The app itself was tested headlessly with Streamlit's `AppTest` (play, hint, take back, change difficulty) and visually in a real Chromium browser.
 
 ---
 
-## 6. Results So Far
+## 6. Results
 
 ### Search efficiency (Phase 2)
 
@@ -327,11 +335,23 @@ All variants chose moves with identical scores at every depth. Full table: `docs
 
 So a full turn on Expert (review plus engine reply) stays within about 3 seconds.
 
+### Playing strength (Phase 4)
+
+90 games against Stockfish 16 at Skill Levels 0 to 2 (out of 20), 10 per pairing (5 openings x both colours). Score = wins + 0.5 x draws.
+
+| Our depth | vs Skill 0 | vs Skill 1 | vs Skill 2 | Total | W / D / L |
+|---|---|---|---|---|---|
+| 2 | 45% | 35% | 20% | **33%** | 7 / 6 / 17 |
+| 3 | 70% | 60% | 65% | **65%** | 17 / 5 / 8 |
+| 4 | 80% | 90% | 70% | **80%** | 21 / 6 / 3 |
+
+Charts: `docs/results/chart_nodes.png`, `chart_time.png`, `chart_benchmark.png`.
+
 ---
 
 ## 7. Development Log
 
-Phases 1 to 3 were built on 9 and 10 October 2026. Each phase has its own git branch (section 10).
+All four phases were built on 9 and 10 October 2026 (see section 13). Each phase has its own git branch (section 10).
 
 ### Phase 1: Formulation and Board (branch `phase-1-formulation-board`)
 
@@ -373,6 +393,31 @@ Phases 1 to 3 were built on 9 and 10 October 2026. Each phase has its own git br
 - *A test used an illegal move* (h3 in a position where White has no h-pawn). **Fix:** used Kf2.
 - *Summary badges wrapped badly* (the count fell onto the next line). **Fix:** the count is now inside each badge.
 
+### Phase 4: Testing, Benchmark and Report (branch `phase-4-testing-report`)
+
+**Built**
+- `tests/benchmark.py`: plays our engine against Stockfish 16 at Skill Level 0, 1 and 2 (out of 20), 0.05 s per Stockfish move. Our engine plays at depths 2, 3 and 4 with the same settings as the app's Medium, Hard and Expert levels. 10 games per pairing, 90 games in total. Every game's full move list is saved, so any game can be replayed.
+- `tests/make_charts.py`: three report charts (nodes searched, time per move, benchmark score), with a colour-blind-checked palette and direct labels on every line.
+- `docs/REPORT.md`: the final report, following the course rubric (formulation, knowledge, why AI, techniques, design, evaluation, limitations, references).
+- `docs/DEMO.md`: a timed 5-minute demo script with exact moves, talking points and a "what if it goes wrong" table.
+- A 14-slide presentation deck built from the same material (shared separately, not in the repository).
+
+**Design choices in the benchmark**
+- *Why 5 openings x 2 colours?* Our engine is deterministic: given the same position it always plays the same move. Without different starting positions, many games would be exact repeats and the results would be meaningless. Playing both colours from each opening also cancels out White's first-move advantage.
+- *Why Stockfish's lowest skill levels?* At full strength Stockfish would win every game, which measures nothing. Skill Levels 0 to 2 make it deliberately choose weaker moves with some randomness, giving a beatable reference opponent.
+- *Why a 200 half-move cap?* Neither side has an endgame plan, so some games would shuffle forever. Games past the cap are scored as draws, and the summary reports how many draws came from the cap.
+
+**Problems and fixes**
+- *Stockfish was not available at first.* The package manager could not find it until its package lists were refreshed (`apt-get update`); after that, Stockfish 16 installed normally. On Windows or Mac it is a download from stockfishchess.org.
+- *Depth 4 is slow.* A full depth-4 game takes 1 to 2 minutes, so the full benchmark takes 30 to 60 minutes. **Fix:** split the run across two processes (one per CPU core) with `--depths` and `--skills` options, then merge the results with `--summarize`.
+- *The machine restarted halfway through the run*, killing both processes after 55 of 90 games. Because the script saves after every single game, nothing was lost. **Fix:** added resume support, so restarting the same command skips games already in the CSV file. Long experiments should always be restartable.
+- *Running two benchmark processes at once shares the CPU*, so the "time per move" numbers in the benchmark are slightly higher than on an idle machine. The clean timing numbers are the ones from `compare_search.py` (section 6).
+
+**Results** (full table in section 6 and `docs/results/benchmark_summary.md`)
+- Score against Stockfish Skill 0 to 2, 30 games per depth: **depth 2: 33%**, **depth 3: 65%**, **depth 4: 80%** (21 wins, 6 draws, 3 losses).
+- 16 of 17 draws were threefold repetitions, confirming limitation 6 in section 9.
+- With only 10 games per pairing, differences between Stockfish skill levels are noise; the depth trend is the real finding.
+
 ---
 
 ## 8. Design Decisions and Trade-offs
@@ -411,10 +456,10 @@ One branch per phase, so the history mirrors the progress reports:
 | `phase-1-formulation-board` | Phase 1 commit | Complete |
 | `phase-2-engine` | Phase 1 + Phase 2 | Complete |
 | `phase-3-assistant` | Phases 1 to 3 | Complete |
-| `phase-4-testing-report` | Will hold the Stockfish benchmark, charts and report | Not started |
+| `phase-4-testing-report` | Phases 1 to 4: benchmark, charts, report, demo script | Complete |
 | `main` | Latest completed phase | Updated after each phase is finished and tested |
 
-**Workflow for every phase:** create the branch from the previous phase, build and test on it, commit, then move `main` forward to it. Nothing is pushed to GitHub until it is explicitly requested.
+**Workflow for every phase:** create the branch from the previous phase, build and test on it, commit, then move `main` forward to it. Nothing is pushed to GitHub until it is explicitly requested. The repository is https://github.com/astrilo-monk/ai-project-clg.
 
 ---
 
@@ -453,8 +498,24 @@ One branch per phase, so the history mirrors the progress reports:
 
 ---
 
-## 13. Next: Phase 4
+## 13. How This Project Was Actually Built (Read Before the Viva)
 
-- Benchmark the engine (depths 2, 3, 4) against Stockfish at its lowest skill levels; record wins, draws and losses.
-- Charts of nodes and time per algorithm for the report.
-- Final report and slides, and a rehearsed 5-minute demo: play a blunder, show the coach, take back, ask for a hint.
+This journal records the real history, because the git history on GitHub records it too. All four phases were built with the help of an AI coding assistant (Claude) in one long working session on 9 and 10 October 2026, and every commit carries a co-author line saying so. Each phase was still built and tested separately, in order, on its own branch, and the problems in section 7 really happened.
+
+That means **your job now is to own the code**, so that you can explain any line of it without notes. Work through this plan before the presentation:
+
+| Day | Study | You are ready when you can |
+|---|---|---|
+| 1 | `docs/formulation.md`, section 2 of this journal | Explain state, actions, utility and PEAS without looking |
+| 2 | `engine/evaluate.py` | Explain piece-square tables and `square_mirror` with a drawing |
+| 3 | `minimax()` in `engine/search.py` | Run minimax by hand on a 3-level tree on paper |
+| 4 | `alphabeta()` | Mark which branches get pruned on that same tree, and say why the result is unchanged |
+| 5 | `ordering.py`, `quiescence()` | Explain MVV-LVA and the horizon effect with a chess example |
+| 6 | `assistant/blunder.py` | Compute a centipawn loss by hand from two scores |
+| 7 | `assistant/explain.py` | Name every rule and the board fact it checks; explain the null move |
+| 8 | `app.py`, `docs/DEMO.md` | Run the full demo twice without looking at the script |
+| 9 | Section 11 (viva answers), `docs/REPORT.md` | Answer all 10 viva questions out loud |
+
+A good test: delete one function (for example `alphabeta`), rewrite it yourself, and run `python -m tests.test_engine`. If the tests pass, you understand it.
+
+If you are asked whether you used AI tools, say yes. Then prove the understanding is yours by explaining alpha-beta on the whiteboard. A student who used a tool and understands every line is in a far stronger position than one whose story falls apart under one question.

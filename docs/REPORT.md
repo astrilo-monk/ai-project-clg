@@ -8,212 +8,308 @@ Repository: https://github.com/astrilo-monk/ai-project-clg
 
 ---
 
-## Abstract
-
-Beginner chess players lose most games to simple tactical errors, yet existing engines report only a numerical evaluation that beginners cannot interpret. We present an AI chess assistant that plays against the user at four difficulty levels, judges every move the user makes, and explains mistakes in plain English. The system combines **adversarial search** (minimax with alpha-beta pruning, MVV-LVA move ordering and quiescence search), a **heuristic evaluation function** (material and piece-square tables), and a **rule-based expert system** that converts engine output into explanations. Alpha-beta pruning with move ordering searched **96.4% fewer positions** than plain minimax at depth 3 while returning identical results. Against Stockfish 16 at its three lowest skill levels (90 games), the engine's score rose with search depth from 33% at depth 2 to 65% at depth 3 and 80% at depth 4. A suite of 22 automated tests verifies the engine's correctness and the coach's explanations, including detection of the Fool's Mate and Scholar's Mate patterns.
-
----
-
 ## 1. Introduction
 
-### 1.1 Problem
+We built an AI chess assistant that plays chess against a beginner, judges every move the beginner makes, and explains mistakes in plain English. The system combines **adversarial search** (minimax with alpha-beta pruning, move ordering and quiescence search), a **heuristic evaluation function**, and a **rule-based expert system** that turns the engine's numbers into explanations. Alpha-beta pruning with move ordering searched **96.4% fewer positions** than plain minimax at depth 3 while making identical decisions. Against Stockfish 16 at its three lowest skill levels (90 games), the engine's score rose with search depth, from 33% at depth 2 to 65% at depth 3 and 80% at depth 4.
 
-A beginner who blunders a piece usually does not know which move was the mistake, what the better move was, or why. Human coaches are expensive. Strong engines such as Stockfish play far above human level, but they communicate through numbers ("-3.2") and long move sequences, which do not teach a beginner anything.
+### 1.1 Problem Statement
 
-### 1.2 Objectives
+Beginner chess players lose most games to simple tactical errors: leaving a piece undefended, missing a free capture, or walking into checkmate. After the game they usually cannot tell which move was the mistake, what they should have played instead, or why.
 
-1. Build a chess-playing agent from scratch using classical AI search.
-2. Let the user play against it at adjustable strength.
-3. Automatically classify every user move as Best, Good, Inaccuracy, Mistake or Blunder.
-4. Explain mistakes in plain language and suggest a better move with its reason.
-5. Evaluate the system experimentally.
+Existing tools do not solve this. Strong engines such as Stockfish play far above human level, but they communicate through a number ("-3.2") and long move sequences. Human coaches can explain, but they are expensive and not always available.
 
-### 1.3 Scope
+**The problem:** build an intelligent agent that (1) plays chess at an adjustable, beginner-appropriate level and (2) detects the user's mistakes and explains them in language a beginner understands.
 
-In scope: a web interface, an engine written from scratch, a move-review and explanation layer, hints, take-back, and an experimental evaluation. Out of scope: opening books, endgame tablebases, machine-learned evaluation, time controls and online play.
+### 1.2 Importance of the Problem
 
----
-
-## 2. Problem Formulation
-
-Chess is formulated as a **two-player, zero-sum, deterministic, fully observable game**, solved by **adversarial search**.
-
-| Component | Definition |
-|---|---|
-| Initial state | Standard starting position, White to move |
-| State | Piece placement, side to move, castling rights, en passant square, halfmove clock |
-| PLAYER(s) | The side to move |
-| ACTIONS(s) | All legal moves (about 35 on average) |
-| RESULT(s, a) | The position after playing move a |
-| TERMINAL(s) | Checkmate, stalemate, insufficient material, threefold repetition, 50-move rule |
-| UTILITY(s) | +1 White wins, 0 draw, -1 Black wins (implemented as ±100000 minus distance to mate) |
-| EVAL(s) | Heuristic estimate in centipawns from White's point of view, used at the depth limit |
-
-### 2.1 PEAS
-
-| | |
-|---|---|
-| Performance | Win rate against reference opponents, nodes searched, time per move, correctness of move classification, clarity of explanations |
-| Environment | 8x8 board, the rules of chess, a human opponent |
-| Actuators | Playing a move; displaying grades, explanations, hints and arrows |
-| Sensors | The current position and the move the user played |
-
-### 2.2 Environment properties
-
-Fully observable, multi-agent and competitive, deterministic, sequential, static, discrete, known.
-
-The full formulation is in `docs/formulation.md`.
+- **Learning needs feedback, not just results.** A beginner who loses without knowing why repeats the same mistake. Immediate, specific feedback ("your knight on f3 is undefended") is what turns a lost game into a lesson.
+- **Access to coaching is unequal.** A tool that explains mistakes for free makes structured feedback available to anyone with a computer.
+- **It is a clear test of explainable AI.** Chess engines are a classic case of an AI that is strong but cannot explain itself. Making a game-playing AI justify its judgements in human terms is a small, measurable version of a problem that matters across AI.
+- **It is a classic AI benchmark.** Chess has been a standard testbed for search and knowledge representation since Shannon (1950), so the results can be compared with well-known theory.
 
 ---
 
-## 3. Knowledge Representation
+## 2. Objectives
 
-| Knowledge type | Content | Representation |
+1. Formulate chess as an AI problem and identify the knowledge an agent needs to play it.
+2. Build a chess-playing agent **from scratch** using classical adversarial search (minimax, alpha-beta pruning, move ordering, quiescence search) and a heuristic evaluation function.
+3. Let the user play against it at four difficulty levels.
+4. Automatically classify every user move as Best, Good, Inaccuracy, Mistake or Blunder.
+5. Explain mistakes in plain English and suggest a better move with the reason it is better.
+6. Evaluate the system experimentally: search efficiency, playing strength, and correctness.
+
+---
+
+## 3. AI Problem Formulation
+
+Chess is formulated as a **two-player, zero-sum, deterministic game of perfect information**, solved by **adversarial search**.
+
+| Component | Definition in this project |
+|---|---|
+| Initial state | The standard starting position, White to move |
+| State | A full board position: piece placement, side to move, castling rights, en passant square, halfmove clock |
+| PLAYER(s) | The side to move in state s |
+| ACTIONS(s) | All legal moves in s (about 35 on average) |
+| RESULT(s, a) | The position after move a is played in s |
+| TERMINAL(s) | True on checkmate, stalemate, insufficient material, threefold repetition or the 50-move rule |
+| UTILITY(s) | +1 if White wins, 0 for a draw, -1 if Black wins. Implemented as ±100000 minus the distance to mate, so faster wins score higher |
+| EVAL(s) | Heuristic estimate of a non-terminal position, in centipawns (100 = one pawn) from White's point of view, used when the search reaches its depth limit |
+
+**Why adversarial search and not ordinary search?** In ordinary search (for example A* on a map) the agent controls every action. In chess every other move is chosen by an opponent who is trying to make us lose, so a line that looks good is worthless if the opponent can refute it. The agent must assume the opponent plays its best reply, which is exactly what minimax models: White maximises the score, Black minimises it.
+
+### 3.1 Environment and Intelligent Agent
+
+**PEAS description**
+
+| | Description |
+|---|---|
+| Performance measure | Win rate against reference opponents; positions searched and time per move; correctness of move classification; clarity of explanations |
+| Environment | An 8x8 board, the rules of chess, and a human opponent (the beginner) |
+| Actuators | Playing a move; displaying move grades, explanations, hints and arrows on the board |
+| Sensors | The current board position and the move the user just played |
+
+**Properties of the environment**
+
+| Property | Value | Reason |
 |---|---|---|
-| Declarative | Rules of chess | python-chess board model and legal move generator |
-| Declarative | Piece values (P 100, N 320, B 330, R 500, Q 900) | Constant table |
-| Heuristic | Positional principles: centralise knights, control the center, castle, activate the king in the endgame, push passed pawns | Six 64-entry piece-square tables, with separate middlegame and endgame king tables |
-| Procedural | How to look ahead and prune | Search algorithms |
-| Expert (teaching) | What beginner mistakes look like and how to describe them | If-then rules in `assistant/explain.py` |
+| Observable | Fully observable | Both players see the whole board |
+| Agents | Multi-agent, competitive | Two players with opposite goals |
+| Deterministic | Deterministic | A move always produces the same next position |
+| Episodic / Sequential | Sequential | Every move affects all future positions |
+| Static / Dynamic | Static | The board does not change while the agent thinks |
+| Discrete / Continuous | Discrete | Finite squares, pieces and moves |
+| Known / Unknown | Known | The rules are fully specified |
+
+**The intelligent agent.** The system contains two cooperating agents:
+
+- **The playing agent** is a **utility-based agent**. It looks ahead through possible move sequences, scores the resulting positions with its evaluation function, and chooses the move with the highest expected utility assuming best play by the opponent.
+- **The coaching agent** is a **knowledge-based agent**. It observes the user's move, asks the playing agent for the best alternative and its value, and applies a rule base to decide what went wrong and how to describe it.
 
 ---
 
-## 4. Why AI Is Appropriate
+## 4. Types of Knowledge Required
 
-1. **Search space.** With a branching factor of about 35 and games of about 80 plies, chess has around 10^120 possible games (Shannon, 1950). Exhaustive search is impossible, so depth-limited heuristic search is required.
-2. **An adversary.** The opponent's moves are chosen to defeat us, which fixed rules cannot anticipate; the agent must reason about the opponent's best replies.
-3. **Judgement under uncertainty about the future.** Positions must be evaluated before the game ends, which requires encoded domain knowledge.
-4. **Explanation.** Teaching requires reasoning about why one move is worse than another, not only choosing a move.
-
----
-
-## 5. Techniques
-
-### 5.1 Minimax
-
-```
-function MINIMAX(s, depth):
-    if TERMINAL(s): return UTILITY(s)
-    if depth = 0:   return EVAL(s)
-    if PLAYER(s) = White: return max over a in ACTIONS(s) of MINIMAX(RESULT(s, a), depth - 1)
-    else:                 return min over a in ACTIONS(s) of MINIMAX(RESULT(s, a), depth - 1)
-```
-
-Minimax is complete and optimal against a perfect opponent within its depth limit, but its cost grows as b^d.
-
-### 5.2 Alpha-beta pruning
-
-Alpha (best value guaranteed to MAX) and beta (best value guaranteed to MIN) are passed down the tree; when alpha ≥ beta the remaining children of a node are skipped. The result is provably identical to minimax (Knuth and Moore, 1975). With perfect move ordering the cost falls from b^d to about b^(d/2).
-
-### 5.3 Move ordering (MVV-LVA)
-
-Captures are searched first, ordered by Most Valuable Victim, Least Valuable Attacker (score = 10 × victim value − attacker value), then promotions, then checks. Better ordering produces earlier cut-offs.
-
-### 5.4 Quiescence search
-
-At depth 0 the search continues through captures only until the position is quiet, using the static evaluation as a "stand pat" bound. This reduces the **horizon effect**, where the engine stops searching just before a recapture.
-
-### 5.5 Mate-distance scoring
-
-Checkmate is scored as MATE − ply, so the engine prefers faster mates when winning and slower ones when losing.
-
-### 5.6 Move review by centipawn loss
-
-```
-best  = SEARCH(position, depth 3)                     # best move and its score
-after = RESULT(position, played move)
-value = SEARCH(after, depth 2)                         # same subtree, one ply already played
-loss  = max(0, score(best) − score(played))            # from the player's point of view
-label = Best (same move) | Good (<50) | Inaccuracy (50–99) | Mistake (100–199) | Blunder (≥200)
-```
-
-### 5.7 Rule-based expert system for explanations
-
-The engine decides whether a move is bad; rules explain why. Rules fire only on moves the engine has already labelled inaccuracy, mistake or blunder:
-
-| Rule | Condition |
-|---|---|
-| Walking into mate | The played move's value is a forced mate for the opponent |
-| Missed mate | The best move's value was a forced mate for the player |
-| Piece lost | The opponent's best reply captures material; subcases for the moved piece, a piece whose defender moved away, and other pieces |
-| Hanging piece | A piece is attacked and undefended, or attacked by a cheaper piece |
-| Missed capture | The best move captured an undefended piece |
-| Opening tips | Early queen moves, king moves that lose castling rights, knights on the edge |
-
-To explain good moves, threats are detected with a **null move**: the side to move "passes", and the system checks whether the opponent would then have a mate in one.
-
-Rules were chosen over machine learning because a teaching tool must never give a wrong explanation, every sentence must be traceable to a fact about the board, and no labelled dataset of chess explanations is freely available.
-
----
-
-## 6. System Design
-
-The system has four layers; each only depends on the layers below it.
-
-| Layer | Module | Responsibility |
+| Knowledge type | What the agent must know | Example |
 |---|---|---|
-| 4. Interface | `app.py` (Streamlit) | Board, move input, coach panel, hints, take back, move history |
-| 3. Assistant | `assistant/blunder.py`, `explain.py`, `hints.py` | Judge moves, explain them, suggest moves |
-| 2. Engine | `engine/search.py`, `ordering.py`, `evaluate.py` | Search and evaluation |
-| 1. Rules | python-chess | Legal moves, terminal tests, board drawing |
+| **Declarative** (facts) | The rules of chess; the relative value of each piece | A bishop moves diagonally; a rook is worth about 5 pawns |
+| **Heuristic** (rules of thumb) | Positional principles that predict who is better before the game ends | Knights are strong in the center; castle early; activate the king in the endgame |
+| **Procedural** (how to) | How to look ahead, which branches to skip, and which moves to try first | Search captures before quiet moves |
+| **Expert / meta-knowledge** (teaching) | What beginner mistakes look like and how to explain them | "A piece attacked by a cheaper piece is in danger even if defended" |
 
-When the user plays a move, the assistant runs two engine searches to review it, the expert system produces feedback, the move is played, and the engine replies at the selected difficulty. Diagrams of this flow are in `docs/JOURNAL.md`, section 2.
+### 4.1 Knowledge Representation
 
-### 6.1 Difficulty levels
+| Knowledge | Representation | Where in code |
+|---|---|---|
+| Rules of chess | Board model and legal move generator (the environment) | python-chess library |
+| Board state | `chess.Board` object; written as a FEN text string for tests and storage | python-chess |
+| Piece values | A constant table: Pawn 100, Knight 320, Bishop 330, Rook 500, Queen 900 | `engine/evaluate.py` |
+| Positional principles | **Piece-square tables**: one 64-entry array per piece type giving a bonus or penalty for each square (for example a knight gets +20 in the center and -50 in a corner); separate middlegame and endgame tables for the king | `engine/evaluate.py` |
+| Look-ahead | A game tree explored implicitly by recursive search; scores backed up from the leaves | `engine/search.py` |
+| Move priorities | A scoring function (MVV-LVA) used to sort moves | `engine/ordering.py` |
+| Teaching knowledge | **If-then production rules** over board facts and engine scores | `assistant/explain.py` |
+| Move quality scale | Thresholds on centipawn loss (50 / 100 / 200) | `assistant/blunder.py` |
 
-| Level | Depth | Quiescence |
+---
+
+## 5. AI Techniques Selected
+
+| Technique | Purpose in the system |
+|---|---|
+| Minimax search | Choose the move that is best assuming the opponent also plays its best |
+| Alpha-beta pruning | Skip branches that cannot change the decision |
+| Heuristic evaluation function | Score positions at the depth limit |
+| Move ordering (MVV-LVA) | Search the most promising moves first, so alpha-beta prunes more |
+| Quiescence search | Continue searching captures past the depth limit to reduce the horizon effect |
+| Centipawn-loss move review | Measure how much worse the user's move was than the best move |
+| Rule-based expert system | Turn engine output into plain-English explanations |
+| Null-move threat detection | Find what the opponent is threatening, to explain defensive moves |
+
+### 5.1 Justification for AI
+
+1. **The search space is far too large for brute force.** With about 35 legal moves per position and games of about 80 half-moves, chess has around 10^120 possible games (Shannon, 1950). The agent must search a limited depth and **estimate** the rest with heuristic knowledge.
+2. **There is an intelligent adversary.** A fixed set of if-then rules for choosing moves cannot anticipate every plan an opponent might try. The agent has to **reason about the opponent's best replies**, which is adversarial search.
+3. **Positions must be judged before the game ends.** Two positions with equal material can be very different. Judging them requires **encoded domain knowledge** (the evaluation function).
+4. **Explaining requires reasoning, not only playing.** To say *why* a move is bad, the system compares what happened with what the best move would have achieved and matches the difference against known mistake patterns. This is **knowledge-based reasoning** on top of search.
+
+A conventional (non-AI) program could enforce the rules and draw the board, but it could neither choose good moves nor explain bad ones.
+
+### 5.2 System Architecture
+
+The system has four layers. Each layer only uses the layers below it.
+
+```
++------------------------------------------------------------------+
+| Layer 4: User interface             app.py (Streamlit)           |
+|   board, move input, coach panel, hints, take back, difficulty   |
++------------------------------------------------------------------+
+| Layer 3: Beginner assistant (coaching agent)                     |
+|   blunder.py: judge a move   explain.py: explain it              |
+|   hints.py: suggest a move                                       |
++------------------------------------------------------------------+
+| Layer 2: Engine (playing agent)                                  |
+|   search.py: minimax, alpha-beta, quiescence                     |
+|   ordering.py: MVV-LVA      evaluate.py: material + tables       |
++------------------------------------------------------------------+
+| Layer 1: Rules of chess (environment)       python-chess library |
++------------------------------------------------------------------+
+```
+
+**What happens when the user plays a move:**
+
+1. The user picks a move in the interface.
+2. The coach calls the engine twice: once for the best move in the position, once for the value of the user's move.
+3. The difference (centipawn loss) gives the label: Best, Good, Inaccuracy, Mistake or Blunder.
+4. The expert system matches the situation against its rules and produces the explanation, the better move with its reason, and any opening tips.
+5. The move is played, and the engine replies at the chosen difficulty.
+6. The interface shows the new board, the coach's feedback, and the move history coloured by move quality.
+
+**Difficulty levels**
+
+| Level | Search depth | Quiescence |
 |---|---|---|
 | Easy | 1 | Off |
 | Medium | 2 | On |
 | Hard | 3 | On |
 | Expert | 4 | On |
 
-The coach always reviews at depth 3, so the user's moves are judged consistently at every difficulty.
+The coach always reviews at depth 3, so the user's moves are judged the same way at every difficulty.
+
+**Implementation:** Python 3.10+, python-chess (rules and board drawing), Streamlit (web interface), matplotlib (charts), Stockfish 16 (benchmark opponent only, never used to choose moves). About 2,000 lines of Python including tests.
 
 ---
 
-## 7. Implementation
+## 6. Algorithms
 
-- Language: Python 3.10+
-- Libraries: python-chess (rules and board drawing), Streamlit (web interface), matplotlib (charts), Stockfish 16 (benchmark opponent only)
-- Size: about 2,000 lines of Python across engine, assistant, interface and tests (counted with `wc -l`)
-- Running: `pip install -r requirements.txt` then `streamlit run app.py`
+### 6.1 Minimax
+
+```
+function MINIMAX(s, depth):
+    if TERMINAL(s): return UTILITY(s)
+    if depth = 0:   return EVAL(s)
+    if PLAYER(s) = White:
+        return max over a in ACTIONS(s) of MINIMAX(RESULT(s, a), depth - 1)
+    else:
+        return min over a in ACTIONS(s) of MINIMAX(RESULT(s, a), depth - 1)
+```
+
+Minimax is optimal against a perfect opponent within its depth limit, but it visits every node, so its cost grows as b^d (about 35^d).
+
+### 6.2 Alpha-beta pruning
+
+```
+function ALPHABETA(s, depth, alpha, beta):
+    if TERMINAL(s): return UTILITY(s)
+    if depth = 0:   return QUIESCENCE(s, alpha, beta)
+    if PLAYER(s) = White:
+        best = -infinity
+        for a in ORDERED-ACTIONS(s):
+            best  = max(best, ALPHABETA(RESULT(s, a), depth - 1, alpha, beta))
+            alpha = max(alpha, best)
+            if alpha >= beta: break        # Black will never allow this line
+        return best
+    else:  (symmetric, with min and beta)
+```
+
+**alpha** is the best score White is already guaranteed elsewhere in the tree; **beta** is the best score Black is already guaranteed. When alpha ≥ beta, the opponent already has a better option elsewhere, so the remaining moves at this node cannot affect the decision and are skipped. The result is provably identical to minimax (Knuth and Moore, 1975). With perfect move ordering the cost falls from b^d to about b^(d/2).
+
+### 6.3 Evaluation function
+
+```
+EVAL(s) = sum over White pieces p of (VALUE[p] + TABLE[p][square of p])
+        - sum over Black pieces p of (VALUE[p] + TABLE[p][mirrored square of p])
+```
+
+The king uses its endgame table when there are no queens, or when each side with a queen has no rooks and at most one minor piece.
+
+### 6.4 Move ordering (MVV-LVA)
+
+```
+score(move) = 10 × VALUE[captured piece] − VALUE[moving piece]    if a capture
+            + bonus                                                if a promotion
+            + bonus                                                if it gives check
+search moves in decreasing order of score
+```
+
+Pawn takes queen (8,900) is searched before queen takes pawn (100). Earlier strong moves produce earlier cut-offs.
+
+### 6.5 Quiescence search
+
+```
+function QUIESCENCE(s, alpha, beta):          (shown for White; Black is symmetric)
+    stand_pat = EVAL(s)
+    if stand_pat >= beta: return stand_pat
+    alpha = max(alpha, stand_pat)
+    for each capture a in ORDERED-CAPTURES(s):
+        score = QUIESCENCE(RESULT(s, a), alpha, beta)
+        if score >= beta: return score
+        alpha = max(alpha, score)
+    return alpha
+```
+
+This removes the **horizon effect**: without it, a depth-2 search may think "queen takes pawn" wins a pawn because the recapture is just beyond its horizon. Extra capture depth is capped at 8 half-moves.
+
+### 6.6 Move review by centipawn loss
+
+```
+function REVIEW(s, played):
+    best   = SEARCH(s, depth 3)                    # best move and its value
+    after  = RESULT(s, played)
+    value  = SEARCH(after, depth 2)                # the same subtree, one move already played
+    loss   = max(0, value(best) − value(played))   # from the player's point of view
+    label  = Best        if played = best move
+             Good        if loss < 50
+             Inaccuracy  if loss < 100
+             Mistake     if loss < 200
+             Blunder     otherwise
+```
+
+### 6.7 Explanation rules (expert system)
+
+Rules fire only on moves already labelled Inaccuracy, Mistake or Blunder, so the engine decides **if** a move is bad and the rules explain **why**:
+
+| Rule | IF | THEN say |
+|---|---|---|
+| Walking into mate | the played move's value is a forced mate for the opponent | "This move walks into checkmate: your opponent plays Qh4#." |
+| Missed mate | the best move's value was a forced mate for the player | "You missed a checkmate in one move, starting with Ra8#." |
+| Moved piece hangs | the opponent's best reply captures the piece just moved, and it is undefended or attacked by a cheaper piece | "You moved your bishop to a6, where it is undefended and can be captured for free." |
+| Defender moved away | the reply captures a piece that was safe before the move | "Your pawn on e5 is no longer protected after this move." |
+| Missed capture | the best move captured an undefended piece | "You missed a free queen on d5 (Nxd5)." |
+| Opening tips | a queen move, king move or edge knight move in the first 10 moves | "You brought your queen out early. Develop your knights and bishops first." |
+
+### 6.8 Null-move threat detection
+
+```
+function THREATS(s):
+    pass the turn without moving (a "null move")
+    return every opponent move that would now give checkmate
+```
+
+If a move removes such a threat, the coach explains it: "g6 stops your opponent's checkmate threat (Qxf7#)."
 
 ---
 
-## 8. Experimental Evaluation
+## 7. Comparison of AI Techniques
 
-### 8.1 Correctness
+### 7.1 Search algorithms compared experimentally
 
-22 automated tests (`tests/test_engine.py`, `tests/test_assistant.py`) all pass. They verify, among other things:
+Total positions searched over four test positions (start, Italian opening, middlegame, endgame), with quiescence off so that every variant searches the same tree:
 
-- The evaluation is exactly 0 in the starting position and changes sign when colours are swapped.
-- **Alpha-beta, with and without move ordering, returns the same score as minimax** on four positions at depths 1 to 3.
-- Mate in 1 is found for both colours, and mate in 2 is found and scored correctly.
-- The engine captures a free queen and refuses a pawn capture that loses its queen.
-- The coach labels a hanging bishop, a missed free queen, the Fool's Mate (...Qh4#) and a missed back-rank mate as blunders, with the correct squares and moves in the explanation.
-- The coach praises a mating move as Best and explains that ...g6 stops the Scholar's Mate threat Qxf7#.
-
-### 8.2 Search efficiency
-
-Total nodes over four test positions (start, Italian opening, middlegame, endgame), quiescence off so all variants search the same tree:
-
-| Depth | Minimax | Alpha-beta | Alpha-beta + ordering | Reduction vs minimax |
+| Depth | Minimax | Alpha-beta | Alpha-beta + move ordering | Reduction vs minimax |
 |---|---|---|---|---|
 | 1 | 113 | 113 | 113 | 0% |
 | 2 | 3,627 | 1,320 | 461 | 87.3% |
-| 3 | 117,954 | 15,895 | 4,296 | 96.4% |
-| 4 | not run | 182,963 | 19,722 | ordering vs plain alpha-beta: 89.2% |
+| 3 | 117,954 | 15,895 | 4,296 | **96.4%** |
+| 4 | not run (minutes per position) | 182,963 | 19,722 | ordering vs plain alpha-beta: **89.2%** |
 
 ![Nodes searched](results/chart_nodes.png)
 
 ![Time per move](results/chart_time.png)
 
-The growth rates match theory: each extra ply multiplies minimax's work by roughly the branching factor (about 32x from depth 2 to 3), whereas alpha-beta with ordering grows by about 9x and 4.6x per ply, consistent with the b^(d/2) best case.
+All three variants returned **exactly the same best score** in every case (checked by an automated test). The growth rates match theory: each extra ply multiplies minimax's work by about the branching factor (32x from depth 2 to 3), while alpha-beta with ordering grows by about 9x and 4.6x per ply, consistent with the b^(d/2) best case.
 
-### 8.3 Playing strength against Stockfish
+### 7.2 Effect of search depth on playing strength
 
-Our engine played Stockfish 16 at Skill Levels 0, 1 and 2 (out of 20; 0.05 s per move, 1 thread). Each pairing is 10 games: 5 openings, each played once with each colour, because our engine is deterministic and would otherwise repeat games. Score = wins + 0.5 × draws.
+Our engine played Stockfish 16 at Skill Levels 0, 1 and 2 (out of 20; 0.05 s per move, 1 thread). Each pairing is 10 games: 5 openings, each played once with each colour, because our engine is deterministic and would otherwise repeat the same game. Score = wins + 0.5 × draws.
 
 | Our depth | vs Skill 0 | vs Skill 1 | vs Skill 2 | Total (30 games) | W / D / L |
 |---|---|---|---|---|---|
@@ -223,47 +319,57 @@ Our engine played Stockfish 16 at Skill Levels 0, 1 and 2 (out of 20; 0.05 s per
 
 ![Benchmark against Stockfish](results/chart_benchmark.png)
 
-**Findings**
-- **Search depth is what makes the engine stronger.** Each extra ply raised the score substantially (33% → 65% → 80%), which is the practical payoff of the efficiency gains in section 8.2: alpha-beta and move ordering are what make depth 4 affordable (about 2 seconds per move).
-- **Differences between skill levels are within noise.** With 10 games per bar, a single game moves a score by 5 to 10 points; for example, depth 4 scored higher against Skill 1 than against Skill 0. The depth trend holds at every skill level, so it is the reliable conclusion.
-- **16 of the 17 draws were threefold repetitions** (one more hit the 200 half-move cap). This matches a known limitation: the engine has no endgame plan and only recognises a draw by repetition when it happens, so it can shuffle pieces in winning positions.
-- **This is not an absolute strength rating.** Skill Levels 0 to 2 are deliberately weakened settings, so the results show relative improvement between our own configurations, not an Elo rating.
+- **Search depth is what makes the engine stronger** (33% → 65% → 80%). Alpha-beta and move ordering (section 7.1) are what make depth 4 affordable, at about 2 seconds per move.
+- **Differences between skill levels are within noise.** With 10 games per bar, one game moves a score by 5 to 10 points. The depth trend holds at every skill level, so it is the reliable conclusion.
+- **16 of the 17 draws were threefold repetitions**, showing that the engine has no endgame plan (see Limitations).
+- These are deliberately weakened Stockfish settings, so the results show **relative** improvement, not an absolute rating.
 
-All 90 games, with full move lists, are in `docs/results/benchmark_games.csv`; the summary is `docs/results/benchmark_summary.md`.
+All 90 games, with full move lists, are in `docs/results/benchmark_games.csv`.
 
-### 8.4 Coach response time
+### 7.3 Alternative techniques considered
 
-Reviewing one move (two searches) took 0.02 to 1.1 seconds on the test positions, averaging 0.84 seconds in the busiest middlegame. A complete turn on Expert (review plus engine reply) stays within about 3 seconds.
+| Technique | Strengths | Weaknesses for this project | Decision |
+|---|---|---|---|
+| **Minimax + alpha-beta** | Exact for two-player zero-sum games; deterministic; easy to explain and test; fast enough in Python at depth 3 to 4 | Needs a hand-written evaluation; limited depth in Python | **Chosen** for move selection |
+| **Monte Carlo Tree Search** | Strong when the branching factor is huge (for example Go); needs no evaluation function | Needs thousands of random playouts per move, slow in Python; random playouts are weak in chess tactics; harder to explain | Rejected |
+| **Reinforcement learning / neural networks** (AlphaZero style) | Learns its own evaluation; very strong | Needs millions of self-play games and GPU training; a black box that cannot explain itself | Rejected; listed as future work for the evaluation only |
+| **Using Stockfish directly** | Extremely strong | Contains no AI of our own; the project would be a wrapper | Used **only** as a benchmark opponent |
+| **Rule-based expert system** for explanations | Every sentence traceable to a rule and a board fact; predictable; needs no data | Covers only the patterns written as rules | **Chosen** for explanations |
+| **Machine learning / language model** for explanations | Could produce varied, fluent text | Needs labelled explanation data that does not exist freely; can state wrong reasons confidently, which is unacceptable in a teaching tool | Rejected |
+
+### 7.4 Verification
+
+22 automated tests all pass. They show, among other things, that alpha-beta (with and without ordering) returns exactly the minimax score; that the engine finds mate in 1 for both colours and mate in 2; that it captures a free queen and refuses a pawn that would cost its queen; and that the coach correctly identifies the Fool's Mate (...Qh4#), a missed back-rank mate, hanging pieces with the right squares, and the ...g6 defence against the Scholar's Mate threat. Reviewing one move takes 0.02 to 1.1 seconds.
 
 ---
 
-## 9. Discussion and Limitations
+## 8. Limitations
 
-1. **Depth-limited judgement.** The coach searches 3 plies, so it can misjudge long-term sacrifices; for example it labels the sound 4.Ng5 in the Two Knights Defence an inaccuracy.
-2. **Simple evaluation.** Material and piece placement only; no king safety, pawn structure or mobility terms.
-3. **Explanations cover common patterns.** Forks, pins and skewers are not yet named; the coach falls back to describing the material the opponent wins.
+1. **Depth-limited judgement.** The coach looks 3 half-moves ahead, so it can misjudge long-term sacrifices. For example, it labels the sound 4.Ng5 in the Two Knights Defence an inaccuracy.
+2. **Simple evaluation.** The engine knows material and piece placement, but not king safety, pawn structure or piece mobility.
+3. **Explanations cover common patterns only.** Forks, pins and skewers are not yet named; in those cases the coach falls back to describing the material the opponent wins.
 4. **Speed.** Pure Python limits practical search to depth 4.
-5. **No opening or endgame knowledge.** The engine calculates from move 1 and may shuffle pieces in won endgames; 16 of the 17 benchmark draws were threefold repetitions.
+5. **No opening or endgame knowledge.** The engine calculates from move 1 and can shuffle pieces in won endgames; 16 of the 17 benchmark draws were threefold repetitions.
 
 ---
 
-## 10. Future Scope
+## 9. Future Scope
 
-- Transposition table and iterative deepening for deeper, faster search
-- Named tactic detection (forks, pins, skewers, discovered attacks)
-- Richer evaluation (king safety, pawn structure, mobility), possibly tuned or learned from games
-- Opening book for variety and endgame tablebases for perfect endgame play
-- Game import (PGN) so users can have their own past games reviewed
-
----
-
-## 11. Conclusion
-
-We formulated chess as an adversarial search problem and built a complete engine from scratch, showing experimentally that alpha-beta pruning with move ordering preserves minimax's decisions while removing over 96% of the search at depth 3. On top of the engine, a rule-based expert system turns numerical evaluations into specific, verifiable explanations for beginners. The project demonstrates search, heuristic knowledge representation and expert-system reasoning working together in an interactive agent that teaches rather than only plays.
+- A transposition table and iterative deepening, for deeper and faster search
+- Detecting and naming tactics: forks, pins, skewers and discovered attacks
+- A richer evaluation (king safety, pawn structure, mobility), possibly tuned or learned from games
+- An opening book for variety and endgame tablebases for perfect endgame play
+- Importing the user's own games (PGN files) so that past games can be reviewed
 
 ---
 
-## References
+## 10. Conclusion
+
+We formulated chess as an adversarial search problem and built a complete chess-playing agent from scratch. Experiments showed that alpha-beta pruning with move ordering keeps minimax's decisions while removing over 96% of the search at depth 3, and that the depth this makes affordable translates directly into playing strength: from 33% to 80% against Stockfish's weakest settings as the depth rose from 2 to 4. On top of the engine, a rule-based expert system turns numerical evaluations into specific, checkable explanations for beginners. The project shows search, heuristic knowledge representation and expert-system reasoning working together in an agent that teaches rather than only plays.
+
+---
+
+## 11. References
 
 1. Russell, S. and Norvig, P. (2020). *Artificial Intelligence: A Modern Approach*, 4th ed. Pearson. Chapter 5: Adversarial Search and Games.
 2. Shannon, C. E. (1950). Programming a Computer for Playing Chess. *Philosophical Magazine*, 41(314), 256–275.
@@ -278,10 +384,11 @@ We formulated chess as an adversarial search problem and built a complete engine
 
 ```bash
 pip install -r requirements.txt
+streamlit run app.py               # the application
 python -m tests.test_engine        # 9 tests
 python -m tests.test_assistant     # 13 tests
-python -m tests.compare_search     # section 8.2 (about 20 seconds)
-python -m tests.benchmark          # section 8.3 (needs Stockfish, 30 to 60 minutes)
+python -m tests.compare_search     # section 7.1 (about 20 seconds)
+python -m tests.benchmark          # section 7.2 (needs Stockfish, 30 to 60 minutes)
 python -m tests.make_charts        # charts in docs/results/
 ```
 

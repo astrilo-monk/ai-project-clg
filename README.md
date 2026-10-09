@@ -17,7 +17,8 @@ venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 
 streamlit run app.py               # play against the engine
-python -m tests.test_engine        # correctness tests
+python -m tests.test_engine        # engine tests (9)
+python -m tests.test_assistant     # coach tests (13)
 python -m tests.compare_search     # minimax vs alpha-beta node counts
 ```
 
@@ -27,8 +28,10 @@ python -m tests.compare_search     # minimax vs alpha-beta node counts
 |---|---|
 | 1. Formulation + board | Done: `docs/formulation.md`, playable board in `app.py` |
 | 2. Engine | Done: evaluation, minimax, alpha-beta, MVV-LVA ordering, quiescence search. Results in `docs/results/search_comparison.md` |
-| 3. Beginner assistant | Not started |
+| 3. Beginner assistant | Done: move review (Best to Blunder), plain-English explanations, hints, difficulty levels, take back, annotated move history |
 | 4. Testing + report | Not started |
+
+**Read `docs/JOURNAL.md`** for the full architecture, how every module works, and the phase-by-phase log.
 
 **Phase 2 headline result:** at depth 3, alpha-beta with move ordering searched **96.4% fewer nodes** than plain minimax (4,296 vs 117,954 across four test positions) and returned the identical evaluation every time.
 
@@ -100,9 +103,13 @@ chess-assistant/
 │   ├── hints.py           # Best move suggestions
 │   └── explain.py         # Plain-English explanations
 ├── tests/
-│   └── benchmark.py       # Engine vs Stockfish, node counts
+│   ├── test_engine.py     # Engine correctness tests
+│   ├── test_assistant.py  # Coach tests
+│   ├── compare_search.py  # Minimax vs alpha-beta experiment
+│   └── benchmark.py       # Engine vs Stockfish (Phase 4)
 ├── docs/
 │   ├── formulation.md     # Phase 1 write-up
+│   ├── JOURNAL.md         # Architecture + development log
 │   └── results/           # Charts and tables
 ├── requirements.txt
 └── README.md
@@ -162,15 +169,15 @@ Warning: Python is slow. Depth 3 to 4 is realistic. Depth 6 will freeze. Move or
 **Goal:** the teaching layer. This is what earns top marks and makes the project different from every other chess bot.
 
 Tasks:
-- [ ] `blunder.py`: after each player move, compare the evaluation before and after. A drop of more than about 200 centipawns is a blunder, 100 to 200 is a mistake.
-- [ ] `hints.py`: a "Hint" button that shows the engine's best move
-- [ ] `explain.py`: rule-based explanations, for example:
+- [x] `blunder.py`: after each player move, compare the evaluation before and after. A drop of more than about 200 centipawns is a blunder, 100 to 200 is a mistake.
+- [x] `hints.py`: a "Hint" button that shows the engine's best move
+- [x] `explain.py`: rule-based explanations, for example:
   - "Your knight on f3 is now undefended and can be captured."
   - "You missed a free bishop on c4."
   - "This move walks into checkmate in 2."
   - "You moved your queen out early. Develop knights and bishops first."
-- [ ] Difficulty levels: Easy (depth 1), Medium (depth 2), Hard (depth 3 or 4)
-- [ ] Show a move history with blunders highlighted
+- [x] Difficulty levels: Easy (depth 1), Medium (depth 2), Hard (depth 3 or 4)
+- [x] Show a move history with blunders highlighted
 
 **Progress line:** "The assistant now detects mistakes, explains them in plain English, and offers hints."
 

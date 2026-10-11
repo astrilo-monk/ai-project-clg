@@ -40,6 +40,7 @@ Live at https://chessassist.streamlit.app/, or run locally with `streamlit run a
 | **Better move** | "Better was e5: it moves your pawn out of danger." Shown as a green arrow on a small board, your move as a red arrow |
 | **Hint** | Best move with its reason: "Try Nf3: it develops your knight toward the center." |
 | **Take back** | Undo your move and the engine's reply, to retry after a mistake |
+| **Step through the game** | ⏮ ◀ ▶ ⏭ under the board: look at any earlier position (for example what the engine just played) without undoing anything |
 | **Move history** | Your moves coloured by quality, with a summary like `Best 3 Good 5 Inaccuracy 1 Mistake 0 Blunder 1` |
 | **Engine stats** | Evaluation, positions searched, thinking time |
 

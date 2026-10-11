@@ -3,7 +3,9 @@
   Clickable chessboard for app.py (a Streamlit "custom component").
 
   Python sends: fen, orientation, the list of legal moves (UCI, e.g. "e2e4"),
-  last move, check square, arrows, and the piece pictures.
+  last move, check square, arrows, the piece pictures, and `reach`: for every
+  piece on the board, the squares it could go to (shown as blue view-only dots
+  for pieces you cannot move right now).
   This page sends back: the move the user clicked, e.g. {uci: "e2e4", id: "..."}.
 
   The board knows no chess rules. It only lets you play moves that are in
@@ -31,6 +33,13 @@
                    transform: translate(-50%, -50%); border-radius: 50%; background: rgba(20, 85, 30, .5); }
   .target.capture::after { width: 100%; height: 100%; border-radius: 0;
                            background: radial-gradient(transparent 0 70%, rgba(20, 85, 30, .5) 71%); }
+  /* View-only squares: where a piece could go, for pieces you cannot move right now. */
+  .sq.has-piece { cursor: pointer; }
+  .peek.target { cursor: default; }
+  .peek.target:hover { background-image: none; }
+  .peek.target::after { background: rgba(30, 90, 200, .5); }
+  .peek.target.capture::after { background: radial-gradient(transparent 0 70%, rgba(30, 90, 200, .5) 71%); }
+  .peek-selected { background-image: linear-gradient(rgba(30, 90, 200, .35), rgba(30, 90, 200, .35)); }
   .coord { position: absolute; font-size: 13px; font-weight: 700; pointer-events: none; }
   .light .coord { color: #b58863; }
   .dark .coord { color: #f0d9b5; }
@@ -103,7 +112,10 @@ function position(square) {
 function draw() {
   const board = document.getElementById("board");
   board.innerHTML = "";
-  const targets = selected ? args.legal.filter((u) => u.startsWith(selected)).map((u) => u.slice(2, 4)) : [];
+  // Green dots if the selected piece can really move now; otherwise blue view-only dots.
+  const playable = selected ? args.legal.filter((u) => u.startsWith(selected)).map((u) => u.slice(2, 4)) : [];
+  const peeking = selected && !playable.length;
+  const targets = peeking ? ((args.reach || {})[selected] || []) : playable;
 
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
@@ -112,9 +124,10 @@ function draw() {
       el.className = "sq " + ((col + row) % 2 ? "dark" : "light");
       if (args.lastmove && args.lastmove.includes(sq)) el.classList.add("last");
       if (sq === args.check) el.classList.add("check");
-      if (sq === selected) el.classList.add("selected");
+      if (sq === selected) el.classList.add(peeking ? "peek-selected" : "selected");
       if (args.legal.some((u) => u.startsWith(sq))) el.classList.add("movable");
-      if (targets.includes(sq)) el.classList.add("target", ...(pieces[sq] ? ["capture"] : []));
+      if (pieces[sq]) el.classList.add("has-piece");
+      if (targets.includes(sq)) el.classList.add("target", ...(pieces[sq] ? ["capture"] : []), ...(peeking ? ["peek"] : []));
       if (pieces[sq]) el.insertAdjacentHTML("beforeend", args.pieces[pieces[sq]]);
       if (col === 0) el.insertAdjacentHTML("beforeend", `<span class="coord rank">${sq[1]}</span>`);
       if (row === 7) el.insertAdjacentHTML("beforeend", `<span class="coord file">${sq[0]}</span>`);
@@ -140,12 +153,12 @@ function drawArrows() {
 
 // ---- Clicking ----
 function clickSquare(sq) {
-  if (!args.interactive) return;
-  const moves = selected ? args.legal.filter((u) => u.startsWith(selected + sq)) : [];
+  const moves = selected && args.interactive ? args.legal.filter((u) => u.startsWith(selected + sq)) : [];
   if (moves.length > 1) return showPromotion(moves);  // a pawn reaching the last rank: 4 choices
   if (moves.length === 1) return play(moves[0]);
-  // Otherwise pick up this piece (if it has moves), or put the current one down.
-  selected = sq !== selected && args.legal.some((u) => u.startsWith(sq)) ? sq : null;
+  // Otherwise select this piece to see where it can go (any piece, either colour),
+  // or clear the selection when clicking it again or an empty square.
+  selected = sq !== selected && pieces[sq] ? sq : null;
   draw();
 }
 
@@ -167,7 +180,7 @@ function play(uci) {
   // Show the move straight away, while Python reviews it and the engine thinks.
   pendingFen = args.fen;
   movePieceLocally(uci);
-  args = { ...args, interactive: false, legal: [], lastmove: [uci.slice(0, 2), uci.slice(2, 4)], check: null, arrows: [] };
+  args = { ...args, interactive: false, legal: [], reach: {}, lastmove: [uci.slice(0, 2), uci.slice(2, 4)], check: null, arrows: [] };
   selected = null;
   draw();
   // The id makes every click unique, so Python never plays the same click twice.

@@ -71,6 +71,7 @@ def new_game(player_color: chess.Color) -> None:
     st.session_state.reviews = {}         # ply index -> MoveReview of the player's move
     st.session_state.feedback = None      # (review, feedback, fen_before) of the last move
     st.session_state.hint = None
+    st.session_state.view_ply = None      # looking back at an earlier position; None = the live game
 
 
 if "board" not in st.session_state:
@@ -122,6 +123,7 @@ def play_player_move(move: chess.Move) -> None:
         st.session_state.feedback = None
 
     st.session_state.hint = None
+    st.session_state.view_ply = None
     board.push(move)
     if not board.is_game_over():
         board.push(computer_move(board))
@@ -137,6 +139,52 @@ def take_back() -> None:
     st.session_state.feedback = None
     st.session_state.hint = None
     st.session_state.last_search = None
+    st.session_state.view_ply = None
+
+
+# ---- Looking back through the game (without undoing anything) ----
+
+def position_after(ply: int) -> chess.Board:
+    """The game position after the first `ply` half-moves (0 = the starting position)."""
+    shown = chess.Board()
+    for move in st.session_state.board.move_stack[:ply]:
+        shown.push(move)
+    return shown
+
+
+def step_view(ply: int) -> None:
+    """Show the position after `ply` half-moves. Reaching the latest move means back to the live game."""
+    total = len(st.session_state.board.move_stack)
+    ply = max(0, min(ply, total))
+    st.session_state.view_ply = None if ply == total else ply
+
+
+def reachable_squares(position: chess.Board) -> dict[str, list[str]]:
+    """
+    For every piece on the board, the squares it could move to, so clicking any
+    piece (also the opponent's) shows where it can go. For the side that is NOT
+    to move we ask "if it were your turn, where could you go?" by flipping the turn
+    on a copy of the board.
+    """
+    reach: dict[str, set[str]] = {}
+    for side in (position.turn, not position.turn):
+        what_if = position.copy(stack=False)
+        what_if.turn = side
+        if side != position.turn:
+            what_if.ep_square = None  # an en passant chance only exists for the side to move
+        for move in what_if.legal_moves:
+            reach.setdefault(chess.square_name(move.from_square), set()).add(chess.square_name(move.to_square))
+    return {square: sorted(targets) for square, targets in reach.items()}
+
+
+def describe_view(ply: int) -> str:
+    if ply == 0:
+        return "Viewing the starting position."
+    before = position_after(ply - 1)
+    move = st.session_state.board.move_stack[ply - 1]
+    who = "your" if before.turn == player_color else "the engine's"
+    dots = "." if before.turn == chess.WHITE else "..."
+    return f"Viewing the position after {who} move {before.fullmove_number}{dots} {before.san(move)}."
 
 
 def game_status(board: chess.Board) -> str:
@@ -164,8 +212,11 @@ def badge(label: str, count: int | None = None) -> str:
     )
 
 
-def annotated_moves_html() -> str:
-    """Move list like '1. e4! e5 2. Qh5?! Nc6', with the player's moves coloured by quality."""
+def annotated_moves_html(highlight: int | None = None) -> str:
+    """
+    Move list like '1. e4! e5 2. Qh5?! Nc6', with the player's moves coloured by quality.
+    `highlight` is the index of a move to mark, e.g. the one being looked back at.
+    """
     replay = chess.Board()
     parts = []
     for i, move in enumerate(board.move_stack):
@@ -177,9 +228,12 @@ def annotated_moves_html() -> str:
         review = st.session_state.reviews.get(i)
         if review:
             color = LABEL_COLORS[review.label]
-            parts.append(f'<span style="color:{color};font-weight:600" title="{review.label}">{san}{review.symbol}</span>')
+            text = f'<span style="color:{color};font-weight:600" title="{review.label}">{san}{review.symbol}</span>'
         else:
-            parts.append(san)
+            text = san
+        if i == highlight:
+            text = f'<span style="background:rgba(127,127,127,.3);border-radius:4px;padding:0 3px">{text}</span>'
+        parts.append(text)
         replay.push(move)
     return '<div style="line-height:1.9;font-family:monospace">' + " ".join(parts) + "</div>"
 
@@ -199,16 +253,23 @@ left, right = st.columns([3, 2], gap="large")
 with left:
     hint = st.session_state.hint
     players_turn = not board.is_game_over() and board.turn == player_color
-    last = board.peek() if board.move_stack else None
+    total_plies = len(board.move_stack)
+    view = st.session_state.get("view_ply")
+    viewing = view is not None and view < total_plies   # looking back at an earlier position
+    shown = position_after(view) if viewing else board
+    can_move = players_turn and not viewing             # no moves while looking back
+
+    last = shown.peek() if shown.move_stack else None
     clicked = chessboard(
-        fen=board.fen(),
+        fen=shown.fen(),
         orientation="white" if player_color == chess.WHITE else "black",
-        interactive=players_turn,
-        legal=[m.uci() for m in board.legal_moves] if players_turn else [],
+        interactive=can_move,
+        legal=[m.uci() for m in board.legal_moves] if can_move else [],
         lastmove=[chess.square_name(last.from_square), chess.square_name(last.to_square)] if last else None,
-        check=chess.square_name(board.king(board.turn)) if board.is_check() else None,
+        check=chess.square_name(shown.king(shown.turn)) if shown.is_check() else None,
         arrows=[[chess.square_name(hint.move.from_square), chess.square_name(hint.move.to_square), ARROW_BETTER]]
-        if hint and players_turn else [],
+        if hint and can_move else [],
+        reach=reachable_squares(shown),
         pieces=PIECE_SVGS,
         key="board_clicks",  # not "board": that name already holds the game in session_state
         default=None,
@@ -217,9 +278,23 @@ with left:
     if clicked and clicked["id"] != st.session_state.get("last_click_id"):
         st.session_state.last_click_id = clicked["id"]
         move = chess.Move.from_uci(clicked["uci"])
-        if players_turn and move in board.legal_moves:
+        if can_move and move in board.legal_moves:
             play_player_move(move)
             st.rerun()
+
+    # Step through the game without undoing anything: see what each side just played.
+    current = view if viewing else total_plies
+    n1, n2, n3, n4 = st.columns(4)
+    n1.button("⏮", on_click=step_view, args=(0,), disabled=current == 0,
+              use_container_width=True, help="Starting position")
+    n2.button("◀", on_click=step_view, args=(current - 1,), disabled=current == 0,
+              use_container_width=True, help="One move back")
+    n3.button("▶", on_click=step_view, args=(current + 1,), disabled=not viewing,
+              use_container_width=True, help="One move forward")
+    n4.button("⏭", on_click=step_view, args=(total_plies,), disabled=not viewing,
+              use_container_width=True, help="Back to the game")
+    if viewing:
+        st.info(describe_view(view) + " Press ⏭ to return to the game.")
 
     result = st.session_state.last_search
     if result is not None:
@@ -232,11 +307,13 @@ with right:
     st.subheader(game_status(board))
 
     if players_turn:
-        st.caption("Click a piece to see where it can go, then click a highlighted square to move it.")
+        st.caption("Click a piece to see where it can go, then click a green dot to move it. "
+                   "Click any other piece, including the engine's, to see its squares in blue.")
         b1, b2 = st.columns(2)
         if b1.button("Hint", use_container_width=True):
             with st.spinner("Looking for a good move..."):
                 st.session_state.hint = get_hint(board)
+            st.session_state.view_ply = None  # jump back to the game so the hint arrow is visible
             st.rerun()
         if b2.button("Take back", disabled=not board.move_stack, use_container_width=True):
             take_back()
@@ -289,7 +366,7 @@ with right:
     if board.move_stack:
         st.divider()
         st.caption("Moves (your moves are coloured by the coach)")
-        st.markdown(annotated_moves_html(), unsafe_allow_html=True)
+        st.markdown(annotated_moves_html(highlight=view - 1 if viewing else None), unsafe_allow_html=True)
 
         reviews = list(st.session_state.reviews.values())
         if reviews:

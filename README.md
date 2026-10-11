@@ -10,12 +10,13 @@ The engine itself (search and evaluation) is all our own code. We only use the `
 
 ## What it does
 
-- **Play on a real board.** Click a piece and it shows you every square it can go to (rings mean captures). Click a square to move.
+- **Play on a real board.** Click a piece and it shows you every square it can go to (rings mean captures). Click a square to move. You can also click any of the engine's pieces to see where *they* can go (blue dots).
 - **Four difficulty levels.** Easy and Medium are deliberately beatable. Hard and Expert use our improved engine.
 - **A coach that reviews every move.** Each move gets a label: Best, Good, Inaccuracy, Mistake or Blunder.
 - **Explanations, not numbers.** Things like *"You moved your queen to h5, where it is undefended and can be captured for free. Your opponent can play Nxh5."* plus the better move drawn as an arrow.
 - **Hints** that come with a reason ("Try Nf3: it develops your knight toward the center").
 - **Take back**, so you can try again after a blunder.
+- **Step through the game** with ⏮ ◀ ▶ ⏭ under the board, to look at what each side just played without undoing anything.
 - **Move history** coloured by how good each of your moves was.
 
 ## How it works (short version)

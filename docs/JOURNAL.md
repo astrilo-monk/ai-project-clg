@@ -265,9 +265,13 @@ Streamlit reruns the whole script from the top on every click, so anything that 
 
 Take back removes your move and the engine's reply, including their reviews, so you can retry after a blunder.
 
+The ⏮ ◀ ▶ ⏭ buttons under the board are different: they only *look* back. The engine replies instantly, so it's easy to miss what it played. Stepping back rebuilds the position after any number of half-moves from the move list (`position_after()`), shows it read-only with that move highlighted, and says whose move it was ("Viewing the position after the engine's move 3... Nf6"). Nothing is undone; playing a move, Take back or Hint returns to the live game.
+
 ### 4.8 `board_component/index.html`: the clickable board
 
 Streamlit doesn't have a clickable chessboard, so we wrote a small custom component in plain HTML and JavaScript (no build step, no npm). Python sends it the position, the list of legal moves, the last move, the check square, any arrows, and the piece pictures (taken from python-chess so they match the other boards). The board draws all that, shows dots on the squares the selected piece can reach, and sends back the move you clicked. Python checks the move is legal again before playing it, so the board itself knows no chess rules at all.
+
+You can also click any piece, including the engine's, to see where it could go (blue, view-only dots). Python works these out in `reachable_squares()`: for the side whose turn it isn't, it flips the turn on a copy of the board and asks python-chess for that side's legal moves.
 
 ### 4.9 `engine/strong.py` and `evaluate_advanced()`: the improved engine
 

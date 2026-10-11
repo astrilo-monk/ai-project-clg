@@ -26,6 +26,7 @@ Run a subset (e.g. in two terminals at once), then merge:
 
 import argparse
 import csv
+import os
 import shutil
 import statistics
 import time
@@ -53,13 +54,23 @@ STOCKFISH_MOVE_TIME = 0.05
 
 def find_stockfish(path: str | None) -> str:
     candidates = [path, shutil.which("stockfish"), "/usr/games/stockfish", "/usr/local/bin/stockfish"]
+    # Windows: `winget install Stockfish.Stockfish` unpacks it here.
+    winget = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+    candidates += sorted(str(p) for p in winget.glob("Stockfish*/**/stockfish*.exe"))
     for c in candidates:
         if c and Path(c).exists():
             return c
     raise SystemExit("Stockfish not found. Install it or pass --stockfish PATH.")
 
 
-def play_game(sf: chess.engine.SimpleEngine, depth: int, skill: int, opening: list[str], our_color: chess.Color) -> dict:
+def play_game(sf: chess.engine.SimpleEngine, depth: int, skill: int, opening: list[str], our_color: chess.Color,
+              on_move=None, our_search=None) -> dict:
+    """
+    Play one game. `on_move(board)`, if given, is called after every move (the live viewer uses it).
+    `our_search(board)` replaces our engine's search, e.g. the Phase 5 engine; the default is the Phase 4 one.
+    """
+    if our_search is None:
+        our_search = lambda b: find_best_move(b, depth, "alphabeta", use_ordering=True, use_quiescence=True)
     sf.configure({"Skill Level": skill})
     board = chess.Board()
     for uci in opening:
@@ -68,12 +79,14 @@ def play_game(sf: chess.engine.SimpleEngine, depth: int, skill: int, opening: li
     our_times, our_nodes = [], []
     while not board.is_game_over(claim_draw=True) and len(board.move_stack) < MAX_PLIES:
         if board.turn == our_color:
-            r = find_best_move(board, depth, "alphabeta", use_ordering=True, use_quiescence=True)
+            r = our_search(board)
             our_times.append(r.seconds)
             our_nodes.append(r.nodes)
             board.push(r.move)
         else:
             board.push(sf.play(board, chess.engine.Limit(time=STOCKFISH_MOVE_TIME)).move)
+        if on_move:
+            on_move(board)
 
     outcome = board.outcome(claim_draw=True)
     if outcome is None:

@@ -24,17 +24,20 @@ from assistant.blunder import LABELS, review_move
 from assistant.explain import explain_move
 from assistant.hints import get_hint
 from engine.search import describe_score, find_best_move
+from engine.strong import search_best_move
 
 st.set_page_config(page_title="AI Chess Assistant", page_icon="♟", layout="wide")
 
-# Difficulty = how deep the opponent searches, and whether it uses quiescence.
-# Easy has no quiescence, so it can grab a pawn and lose a piece to the
-# recapture, exactly the kind of mistake a beginner can punish.
+# Easy and Medium use the original engine at a fixed, shallow depth. Easy has
+# no quiescence, so it can grab a pawn and lose a piece to the recapture,
+# exactly the kind of mistake a beginner can punish.
+# Hard and Expert use the stronger Phase 5 engine (engine/strong.py) with a
+# time limit per move instead of a fixed depth.
 DIFFICULTY = {
     "Easy": dict(depth=1, use_quiescence=False),
     "Medium": dict(depth=2, use_quiescence=True),
-    "Hard": dict(depth=3, use_quiescence=True),
-    "Expert": dict(depth=4, use_quiescence=True),
+    "Hard": dict(time_limit=0.5, min_depth=3),
+    "Expert": dict(time_limit=2.0, min_depth=4),
 }
 
 LABEL_COLORS = {
@@ -84,7 +87,8 @@ with st.sidebar:
     st.header("Settings")
     level = st.radio(
         "Opponent difficulty", list(DIFFICULTY), index=1,
-        help="Easy: looks 1 half-move ahead. Medium: 2. Hard: 3. Expert: 4 (a few seconds per move).",
+        help="Easy: looks 1 half-move ahead. Medium: 2. Hard and Expert: the stronger engine, "
+             "thinking 0.5 s and 2 s per move.",
     )
     coach_on = st.toggle("Coach mode", value=True, help="Review every move you play and explain mistakes.")
     st.caption(
@@ -95,8 +99,12 @@ with st.sidebar:
 
 def computer_move(board: chess.Board) -> chess.Move:
     """Ask our engine for its move at the chosen difficulty."""
+    settings = DIFFICULTY[level]
     with st.spinner("Engine is thinking..."):
-        result = find_best_move(board, algorithm="alphabeta", use_ordering=True, **DIFFICULTY[level])
+        if "time_limit" in settings:
+            result = search_best_move(board, **settings)
+        else:
+            result = find_best_move(board, algorithm="alphabeta", use_ordering=True, **settings)
     st.session_state.last_search = result
     return result.move
 

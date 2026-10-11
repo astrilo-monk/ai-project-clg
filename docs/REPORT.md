@@ -165,16 +165,16 @@ The system has four layers. Each layer only uses the layers below it.
 
 **Difficulty levels**
 
-| Level | Search depth | Quiescence |
+| Level | Engine | Search |
 |---|---|---|
-| Easy | 1 | Off |
-| Medium | 2 | On |
-| Hard | 3 | On |
-| Expert | 4 | On |
+| Easy | Basic alpha-beta (section 6.2) | Depth 1, no quiescence |
+| Medium | Basic alpha-beta | Depth 2, quiescence on |
+| Hard | Enhanced engine (section 6.9) | 0.5 s per move, at least depth 3 |
+| Expert | Enhanced engine | 2 s per move, at least depth 4 |
 
-The coach always reviews at depth 3, so the user's moves are judged the same way at every difficulty.
+The coach always reviews with the basic alpha-beta at depth 3, so the user's moves are judged the same, exact way at every difficulty.
 
-**Implementation:** Python 3.10+, python-chess (rules and board drawing), Streamlit (web interface), matplotlib (charts), Stockfish 16 (benchmark opponent only, never used to choose moves). About 2,000 lines of Python including tests.
+**Implementation:** Python 3.10+, python-chess (rules and board drawing), Streamlit (web interface), matplotlib (charts), Stockfish 16 and 19 (benchmark opponents only, never used to choose moves). About 2,400 lines of Python including tests.
 
 ---
 
@@ -286,6 +286,31 @@ function THREATS(s):
 
 If a move removes such a threat, the coach explains it: "g6 stops your opponent's checkmate threat (Qxf7#)."
 
+### 6.9 Enhanced engine (Hard and Expert opponent)
+
+The basic engine searches every move to a fixed depth. The enhanced engine (`engine/strong.py`) adds the standard techniques of modern game-playing programs on top of alpha-beta, written in **negamax** form (one branch instead of MAX and MIN, using min(a, b) = −max(−a, −b)):
+
+```
+function ITERATIVE-DEEPENING(s, time, min_depth):
+    for depth = 1, 2, 3, ...:
+        search s to this depth, best move of the previous depth first
+        stop when the time is up (but never before min_depth is finished)
+    return the best move of the deepest search
+```
+
+| Technique | Idea |
+|---|---|
+| Iterative deepening | Search depth 1, 2, 3... within a time limit; each pass orders the next |
+| Transposition table | Remember positions already searched (score, bound type, best move), since different move orders reach the same position |
+| Killer moves and history heuristic | Try first the quiet moves that caused cut-offs elsewhere |
+| Null-move pruning | If passing the turn still beats beta, cut the line after a shallow search |
+| Principal variation search | After the first move, only test whether others are better, with a zero-width window |
+| Late move reductions | Search late, quiet moves one ply shallower; re-search if they surprise |
+| Check extension | Search one ply deeper when in check |
+| Repetition at the first repeat | Score a repeated position as a draw, so a winning engine stops shuffling |
+
+Its evaluation adds to section 6.3: a **tapered** blend of middlegame and endgame scores by game phase; **pawn structure** (passed, doubled, isolated pawns); bishop pair; rooks on open files; **king shelter**; and **mop-up** in won endgames (drive the enemy king to the edge), which lets it mate with king and queen against king. The basic search is kept unchanged, both for the comparison in section 7.1 and for the coach, because null-move pruning and reductions are not exact and the coach's two searches must agree.
+
 ---
 
 ## 7. Comparison of AI Techniques
@@ -326,7 +351,21 @@ Our engine played Stockfish 16 at Skill Levels 0, 1 and 2 (out of 20; 0.05 s per
 
 All 90 games, with full move lists, are in `docs/results/benchmark_games.csv`.
 
-### 7.3 Alternative techniques considered
+### 7.3 Effect of the enhanced engine
+
+20-game matches (10 openings, each with both colours) against the basic engine and Stockfish 19 (0.05 s per move). Score = wins + 0.5 × draws.
+
+| Match | Score |
+|---|---|
+| Enhanced engine vs basic engine (Hard settings) | **75%** (13 W, 4 D, 3 L), about +190 Elo |
+| Enhanced evaluation vs basic evaluation, same enhanced search | **80%** (15 W, 2 D, 3 L) |
+| Expert vs Stockfish skill 6: basic (depth 4) → enhanced (2 s) | **12% → 42%**, about +285 Elo |
+| Hard vs Stockfish skill 4: basic (depth 3) → enhanced (0.5 s) | **30% → 42%** |
+| Hard vs Stockfish skill 6: basic (depth 3) → enhanced (0.5 s) | 15% → 20% |
+
+Both the search and the evaluation improvements were measured separately, and both help. The first enhanced version scored *worse* than the basic engine against Stockfish skill 4 and 6. Replaying its 42 blunders (judged by full-strength Stockfish, used only as an analysis tool) showed that switching the pruning techniques off did not help, but more time did: the cause was time management, not pruning. A guaranteed minimum depth and keeping the partial result of an unfinished iteration fixed it. With 20 games per match, each score is accurate to about ±10 points; the consistent direction across all comparisons is the reliable finding.
+
+### 7.4 Alternative techniques considered
 
 | Technique | Strengths | Weaknesses for this project | Decision |
 |---|---|---|---|
@@ -337,27 +376,27 @@ All 90 games, with full move lists, are in `docs/results/benchmark_games.csv`.
 | **Rule-based expert system** for explanations | Every sentence traceable to a rule and a board fact; predictable; needs no data | Covers only the patterns written as rules | **Chosen** for explanations |
 | **Machine learning / language model** for explanations | Could produce varied, fluent text | Needs labelled explanation data that does not exist freely; can state wrong reasons confidently, which is unacceptable in a teaching tool | Rejected |
 
-### 7.4 Verification
+### 7.5 Verification
 
-22 automated tests all pass. They show, among other things, that alpha-beta (with and without ordering) returns exactly the minimax score; that the engine finds mate in 1 for both colours and mate in 2; that it captures a free queen and refuses a pawn that would cost its queen; and that the coach correctly identifies the Fool's Mate (...Qh4#), a missed back-rank mate, hanging pieces with the right squares, and the ...g6 defence against the Scholar's Mate threat. Reviewing one move takes 0.02 to 1.1 seconds.
+25 automated tests all pass. They show, among other things, that alpha-beta (with and without ordering) returns exactly the minimax score; that both engines find mate in 1 for both colours and mate in 2; that they capture a free queen and refuse a pawn that would cost the queen; that both evaluation functions are exactly colour-symmetric; that the enhanced engine mates with king and queen against king; and that the coach correctly identifies the Fool's Mate (...Qh4#), a missed back-rank mate, hanging pieces with the right squares, and the ...g6 defence against the Scholar's Mate threat. Reviewing one move takes 0.02 to 1.1 seconds.
 
 ---
 
 ## 8. Limitations
 
 1. **Depth-limited judgement.** The coach looks 3 half-moves ahead, so it can misjudge long-term sacrifices. For example, it labels the sound 4.Ng5 in the Two Knights Defence an inaccuracy.
-2. **Simple evaluation.** The engine knows material and piece placement, but not king safety, pawn structure or piece mobility.
+2. **Hand-tuned evaluation.** The enhanced evaluation knows pawn structure and king shelter, but not mobility, and its weights are textbook values, not tuned on games.
 3. **Explanations cover common patterns only.** Forks, pins and skewers are not yet named; in those cases the coach falls back to describing the material the opponent wins.
-4. **Speed.** Pure Python limits practical search to depth 4.
-5. **No opening or endgame knowledge.** The engine calculates from move 1 and can shuffle pieces in won endgames; 16 of the 17 benchmark draws were threefold repetitions.
+4. **Speed.** Pure Python searches about 25,000 positions per second, against millions for engines written in C. Even the enhanced engine reaches only depth 4 to 8 in 2 seconds.
+5. **No opening book or endgame tablebases.** The engine calculates from move 1; several of its losses come from early opening mistakes. (The basic engine also shuffled pieces in won endgames; the enhanced engine fixes this with repetition detection and mop-up evaluation.)
+6. **Pruning is not exact.** Null-move pruning and late move reductions occasionally miss a move a full-width search would find, which is why the coach keeps the exact basic search.
 
 ---
 
 ## 9. Future Scope
 
-- A transposition table and iterative deepening, for deeper and faster search
 - Detecting and naming tactics: forks, pins, skewers and discovered attacks
-- A richer evaluation (king safety, pawn structure, mobility), possibly tuned or learned from games
+- A mobility term and evaluation weights tuned automatically on games (for example with Texel tuning), or a learned evaluation
 - An opening book for variety and endgame tablebases for perfect endgame play
 - Importing the user's own games (PGN files) so that past games can be reviewed
 
@@ -365,7 +404,7 @@ All 90 games, with full move lists, are in `docs/results/benchmark_games.csv`.
 
 ## 10. Conclusion
 
-We formulated chess as an adversarial search problem and built a complete chess-playing agent from scratch. Experiments showed that alpha-beta pruning with move ordering keeps minimax's decisions while removing over 96% of the search at depth 3, and that the depth this makes affordable translates directly into playing strength: from 33% to 80% against Stockfish's weakest settings as the depth rose from 2 to 4. On top of the engine, a rule-based expert system turns numerical evaluations into specific, checkable explanations for beginners. The project shows search, heuristic knowledge representation and expert-system reasoning working together in an agent that teaches rather than only plays.
+We formulated chess as an adversarial search problem and built a complete chess-playing agent from scratch. Experiments showed that alpha-beta pruning with move ordering keeps minimax's decisions while removing over 96% of the search at depth 3, and that the depth this makes affordable translates directly into playing strength: from 33% to 80% against Stockfish's weakest settings as the depth rose from 2 to 4. An enhanced engine with iterative deepening, a transposition table, selective pruning and a richer evaluation then beat the basic engine 75% of the time and raised the Expert level's score against Stockfish skill 6 from 12% to 42%. On top of the engine, a rule-based expert system turns numerical evaluations into specific, checkable explanations for beginners. The project shows search, heuristic knowledge representation and expert-system reasoning working together in an agent that teaches rather than only plays.
 
 ---
 
@@ -382,16 +421,20 @@ We formulated chess as an adversarial search problem and built a complete chess-
 
 ## Appendix A: Reproducing the Results
 
+Live application: https://chessassist.streamlit.app/ · Source code: https://github.com/astrilo-monk/ai-project-clg
+
 ```bash
 pip install -r requirements.txt
 streamlit run app.py               # the application
-python -m tests.test_engine        # 9 tests
+python -m tests.test_engine        # 12 tests
 python -m tests.test_assistant     # 13 tests
 python -m tests.compare_search     # section 7.1 (about 20 seconds)
 python -m tests.benchmark          # section 7.2 (needs Stockfish, 30 to 60 minutes)
 python -m tests.make_charts        # charts in docs/results/
+python -m tests.engine_match strong:0.5 old:3 --workers 3     # section 7.3 (about 5 to 10 minutes per match)
+python -m tests.engine_match strong:2:4 sf:6 --workers 3      # section 7.3, needs Stockfish
 ```
 
 ## Appendix B: Tools Used
 
-python-chess, Streamlit, matplotlib, Stockfish 16 (benchmark only), Git and GitHub. An AI coding assistant (Claude) was used during implementation; the commit history records this.
+python-chess, Streamlit, matplotlib, Stockfish 16 and 19 (benchmark and analysis only), Git and GitHub. An AI coding assistant (Claude) was used during implementation; the commit history records this.

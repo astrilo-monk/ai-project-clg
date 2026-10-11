@@ -8,8 +8,9 @@ Run with either:
 
 import chess
 
-from engine.evaluate import MATE_SCORE, evaluate
+from engine.evaluate import MATE_SCORE, evaluate, evaluate_advanced
 from engine.search import find_best_move
+from engine.strong import search_best_move
 
 # A few positions of different kinds, written as FEN strings.
 POSITIONS = {
@@ -88,7 +89,46 @@ def test_board_is_not_modified():
     board = chess.Board(POSITIONS["italian"])
     fen_before = board.fen()
     find_best_move(board, 3)
+    search_best_move(board, time_limit=None, max_depth=3)
     assert board.fen() == fen_before
+
+
+# ---- Phase 5: advanced evaluation and the stronger search (engine/strong.py) ----
+
+def test_advanced_evaluation_is_balanced_and_symmetric():
+    assert evaluate_advanced(chess.Board()) == 0
+    # Extra positions with passed, doubled and isolated pawns, open files, and a lone king.
+    extra = ["8/p4k2/1p6/2P5/P7/8/5PPP/4R1K1 w - - 0 1", "8/8/8/4k3/8/8/8/3QK3 w - - 0 1",
+             "r3k2r/pp3ppp/2p5/8/3P4/8/PP3PPP/R3K2R w KQkq - 0 1"]
+    for fen in list(POSITIONS.values()) + extra:
+        board = chess.Board(fen)
+        assert evaluate_advanced(board) == -evaluate_advanced(board.mirror()), fen
+
+
+def test_strong_search_tactics():
+    cases = [  # (fen, max depth, expected move)
+        ("6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1", 2, "Ra8#"),
+        ("r5k1/8/8/8/8/8/5PPP/6K1 b - - 0 1", 2, "Ra1#"),
+        ("r5k1/5ppp/8/8/8/8/4RPPP/4R1K1 w - - 0 1", 4, "Re8+"),
+        ("rnb1kbnr/ppp1pppp/8/3q4/8/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 3", 3, "Nxd5"),
+    ]
+    for fen, depth, expected in cases:
+        board = chess.Board(fen)
+        result = search_best_move(board, time_limit=None, max_depth=depth)
+        assert board.san(result.move) == expected, (fen, board.san(result.move))
+    board = chess.Board("r5k1/5ppp/8/8/8/8/4RPPP/4R1K1 w - - 0 1")
+    assert search_best_move(board, time_limit=None, max_depth=4).score == MATE_SCORE - 3
+    board = chess.Board("rnbqkbnr/ppp2ppp/8/3pp3/8/5Q2/PPPP1PPP/RNB1KBNR w KQkq - 0 3")
+    assert board.san(search_best_move(board, time_limit=None, max_depth=3).move) != "Qxd5"
+
+
+def test_strong_search_mates_with_king_and_queen():
+    # The old engine shuffles in endgames like this one. Mop-up evaluation and
+    # repetition detection should let the new one force mate.
+    board = chess.Board("8/8/8/4k3/8/8/8/3QK3 w - - 0 1")
+    while not board.is_game_over(claim_draw=True) and board.fullmove_number < 40:
+        board.push(search_best_move(board, time_limit=0.2).move)
+    assert board.is_checkmate(), board.fen()
 
 
 if __name__ == "__main__":

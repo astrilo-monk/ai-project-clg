@@ -1,42 +1,36 @@
-# Project Journal: AI Chess Assistant for Beginner Players
+# Project Journal: AI Chess Assistant for Beginners
 
-This journal explains how the whole system is built and why, and records what happened in each phase: what was built, what went wrong, and how it was fixed. Read it before every progress meeting.
+This is our working journal for the project. The first half explains how everything fits together and why we built it the way we did. The second half is the actual development log: what we built in each phase, what broke, and how we fixed it. We kept it mostly so we could explain any part of the project when asked, without having to dig through the code.
 
-**How to use this file**
-- Sections 1 to 4 explain the **architecture** (the big picture, then each module in detail).
-- Sections 5 and 6 cover **testing and results**.
-- Section 7 is the **phase-by-phase development log**.
-- Sections 8 to 12 cover **decisions, limitations, git workflow, viva answers and a glossary**.
+Live app: https://chessassist.streamlit.app/
 
 ---
 
-## 1. What the System Does
+## 1. The Idea
 
-The user plays chess against an AI opponent in a web browser. After every move the user makes, an AI **coach**:
+You play chess against the computer in the browser. After every move you make, a coach:
 
-1. Judges the move: **Best, Good, Inaccuracy, Mistake or Blunder**.
-2. Explains in plain English **why** a bad move is bad (for example "This move walks into checkmate: your opponent plays Qh4#").
-3. Shows the **better move**, with the reason it is better, on a small board with arrows.
-4. Gives **opening tips** (early queen moves, giving up castling, knights on the edge).
+1. Labels the move: **Best, Good, Inaccuracy, Mistake or Blunder**.
+2. If it was bad, explains **why**, in normal English ("This move walks into checkmate: your opponent plays Qh4#").
+3. Shows what you **should have played**, on a small board with arrows, plus the reason it's better.
+4. Gives opening tips when you do beginner things (queen out too early, knight on the edge, giving up castling).
 
-The user can also ask for a **hint** (best move plus the reason), **take back** a move to try again, and choose the opponent's **difficulty**.
+You can also ask for a hint, take a move back, and pick how strong the opponent is.
 
-All of the AI (search, evaluation, move judging, explanations) is written from scratch. The `python-chess` library supplies only the rules of chess.
+All of the AI (search, evaluation, judging moves, explanations) is our own code. `python-chess` only gives us the rules.
 
 ---
 
-## 2. Architecture Overview
+## 2. How It's Put Together
 
-### 2.1 Layers
-
-The system has four layers. Each layer only uses the layer below it.
+### 2.1 Four layers
 
 ```mermaid
 flowchart TB
-    UI["<b>Layer 4: User interface</b><br/>app.py (Streamlit)<br/>board, buttons, coach panel, move history"]
-    AS["<b>Layer 3: Beginner assistant</b><br/>assistant/blunder.py: judge a move<br/>assistant/explain.py: explain it in English<br/>assistant/hints.py: suggest a move"]
-    EN["<b>Layer 2: Engine (the AI core)</b><br/>engine/search.py: minimax, alpha-beta, quiescence<br/>engine/ordering.py: MVV-LVA move ordering<br/>engine/evaluate.py: material + piece-square tables"]
-    RU["<b>Layer 1: Rules of chess</b><br/>python-chess library<br/>legal moves, check, checkmate, draws, SVG board"]
+    UI["<b>Layer 4: Interface</b><br/>app.py (Streamlit) + board_component/<br/>board, buttons, coach panel, move history"]
+    AS["<b>Layer 3: The coach</b><br/>assistant/blunder.py: judge a move<br/>assistant/explain.py: explain it<br/>assistant/hints.py: suggest a move"]
+    EN["<b>Layer 2: The engine</b><br/>engine/search.py: minimax, alpha-beta, quiescence<br/>engine/strong.py: improved engine (Hard, Expert)<br/>engine/ordering.py, engine/evaluate.py"]
+    RU["<b>Layer 1: Rules of chess</b><br/>python-chess<br/>legal moves, check, mate, draws, board drawing"]
     UI --> AS
     UI --> EN
     AS --> EN
@@ -44,127 +38,123 @@ flowchart TB
     AS --> RU
 ```
 
-**Why layers?**
-- **The engine knows nothing about the user interface.** The same engine runs in the app, in the tests, and in the benchmark scripts.
-- **The assistant reuses the engine instead of duplicating it.** To judge a move, the coach simply asks the engine two questions (see section 4.5).
-- **Each layer can be tested on its own.** The engine tests never open a browser, and the assistant tests never draw a board.
-- **Layers can be swapped.** Replacing Streamlit with pygame would only change `app.py`.
+Keeping these separate paid off more than once:
+- The engine has no idea there's a UI, so the exact same code runs in the app, in the tests and in the benchmarks.
+- The coach doesn't have its own chess logic. To judge a move it just asks the engine two questions (section 4.4).
+- We can test each layer on its own. The engine tests never open a browser.
 
-### 2.2 Folder Map
+### 2.2 Files
 
 ```
-chess-assistant/
-├── app.py                    Layer 4: Streamlit web interface
-├── board_component/          Layer 4: click-to-move chessboard (HTML + JavaScript)
-├── assistant/                Layer 3: the teaching layer (Phase 3)
-│   ├── blunder.py            MoveReview: centipawn loss and Best..Blunder label
-│   ├── explain.py            Rule-based expert system, Feedback sentences
-│   └── hints.py              Hint: best move plus its idea
-├── engine/                   Layer 2: the AI core (Phase 2)
-│   ├── evaluate.py           Heuristic evaluation function
-│   ├── search.py             Minimax, alpha-beta, quiescence, find_best_move()
-│   └── ordering.py           MVV-LVA move ordering
-├── tests/
-│   ├── test_engine.py        9 engine correctness tests
-│   ├── test_assistant.py     13 coach tests
-│   ├── compare_search.py     Minimax vs alpha-beta experiment
-│   ├── benchmark.py          Our engine vs Stockfish (Phase 4)
-│   └── make_charts.py        Report charts from the CSV results (Phase 4)
-├── docs/
-│   ├── formulation.md        Phase 1 problem formulation
-│   ├── JOURNAL.md            This file
-│   ├── REPORT.md             Final project report (Phase 4)
-│   ├── DEMO.md               5-minute demo script (Phase 4)
-│   └── results/              Experiment outputs: CSVs, summary tables, PNG charts
-├── requirements.txt
-└── README.md                 Build guide and progress table
+app.py                    Layer 4: the Streamlit app
+board_component/          Layer 4: the click-to-move board (HTML + JavaScript)
+benchmark_live.py         watch the engine play Stockfish in the browser
+assistant/                Layer 3
+  blunder.py              MoveReview: centipawn loss -> Best..Blunder
+  explain.py              rule-based expert system -> sentences
+  hints.py                best move + the idea behind it
+engine/                   Layer 2
+  evaluate.py             evaluate() and evaluate_advanced()
+  search.py               minimax, alpha-beta, quiescence, find_best_move()
+  strong.py               improved engine, search_best_move()
+  ordering.py             MVV-LVA move ordering
+tests/
+  test_engine.py          12 engine tests
+  test_assistant.py       13 coach tests
+  compare_search.py       minimax vs alpha-beta experiment
+  benchmark.py            our engine vs Stockfish (Phase 4)
+  engine_match.py         engine vs engine / vs Stockfish matches (Phase 5)
+  make_charts.py          charts for the report
+docs/
+  formulation.md          problem formulation
+  JOURNAL.md              this file
+  REPORT.md               final report
+  DEMO.md                 demo script
+  results/                every CSV, table and chart
 ```
 
-### 2.3 What Happens When You Play a Move
-
-This is the full journey of one move played on the board:
+### 2.3 What happens when you play a move
 
 ```mermaid
 sequenceDiagram
-    actor U as User
+    actor U as You
     participant A as app.py
     participant B as assistant/blunder.py
     participant X as assistant/explain.py
-    participant E as engine/search.py
-    U->>A: clicks the queen, then h5
+    participant E as engine
+    U->>A: click the queen, then h5
     A->>B: review_move(position, Qh5)
-    B->>E: find_best_move(position, depth 3)
-    E-->>B: best = e5, score
-    B->>E: find_best_move(position after Qh5, depth 2)
-    E-->>B: opponent's reply Nxh5, score
-    B-->>A: MoveReview(label = Blunder, loss = 850, best = e5, reply = Nxh5)
+    B->>E: best move here? (depth 3)
+    E-->>B: e5, score
+    B->>E: how good is Qh5? (depth 2 after the move)
+    E-->>B: reply Nxh5, score
+    B-->>A: Blunder, loss 850, better: e5
     A->>X: explain_move(position, review)
-    X-->>A: Feedback(headline, reasons, better, tips)
-    A->>A: board.push(Qh5)
-    A->>E: find_best_move(board, difficulty depth)
-    E-->>A: engine's move
-    A->>A: board.push(engine move), rerun page
-    A-->>U: new board + coach panel + coloured move list
+    X-->>A: headline, reasons, better move, tips
+    A->>A: play Qh5
+    A->>E: engine's reply at the chosen difficulty
+    E-->>A: move
+    A-->>U: new board, coach panel, coloured move list
 ```
 
-### 2.4 Key Data Structures
+### 2.4 The main data structures
 
-| Name | Defined in | What it holds |
+| Name | Where | What's in it |
 |---|---|---|
-| `chess.Board` | python-chess | A full position: pieces, side to move, castling rights, en passant, move history. `push(move)` plays a move, `pop()` undoes it |
-| `SearchResult` | `engine/search.py` | The engine's answer: `move`, `score` (centipawns, White's view), `depth`, `nodes`, `seconds`, `algorithm` |
-| `MoveReview` | `assistant/blunder.py` | The coach's verdict on one move: `label`, `loss`, `best_move`, `best_score`, `played_score`, opponent's `reply` |
-| `Feedback` | `assistant/explain.py` | The coach's words: `headline`, `reasons` (why it was bad), `better` (what to play instead), `tips` |
-| `Hint` | `assistant/hints.py` | Suggested `move`, its `idea` in words, and `score` |
-| `st.session_state` | `app.py` | Everything that survives between clicks: `board`, `player_color`, `reviews`, `feedback`, `hint`, `last_search` |
+| `chess.Board` | python-chess | A full position plus move history. `push(move)` plays, `pop()` undoes |
+| `SearchResult` | `engine/search.py` | The engine's answer: `move`, `score`, `depth`, `nodes`, `seconds`, `algorithm` |
+| `MoveReview` | `assistant/blunder.py` | The coach's verdict: `label`, `loss`, `best_move`, scores, the opponent's `reply` |
+| `Feedback` | `assistant/explain.py` | The coach's words: `headline`, `reasons`, `better`, `tips` |
+| `Hint` | `assistant/hints.py` | Suggested `move`, its `idea` in words, `score` |
+| `st.session_state` | `app.py` | Everything that has to survive a page rerun: board, colour, reviews, feedback, hint |
 
-**Scoring convention used everywhere:** scores are in **centipawns** (100 = one pawn) from **White's point of view**. Positive means White is better, negative means Black is better. Checkmate is scored around ±100000.
-
----
-
-## 3. Layer 1: Rules (python-chess)
-
-We do **not** write move generation ourselves. Generating legal chess moves (castling, en passant, promotion, pins, checks) is a large, error-prone task that has nothing to do with AI. `python-chess` is to this project what a physics simulator is to a robotics project: it is the **environment**, and our code is the **agent**.
-
-What we use from it: `Board`, `legal_moves`, `push`/`pop`, `is_checkmate`, `is_capture`, `attackers`, `san` (move names like "Nf3"), and `chess.svg` to draw boards.
+One convention everywhere: scores are in **centipawns** (100 = one pawn) from **White's point of view**. Positive is good for White. Checkmate is around ±100,000.
 
 ---
 
-## 4. Module Deep Dives
+## 3. Why We Didn't Write the Rules Ourselves
 
-### 4.1 `engine/evaluate.py`: How the AI Judges a Position
+Generating legal chess moves properly (castling, en passant, promotion, pins, discovered checks) is a lot of fiddly work and has nothing to do with AI. So `python-chess` is our environment, the same way a robotics project uses a physics simulator, and our code is the agent. We use `Board`, `legal_moves`, `push`/`pop`, `is_checkmate`, `is_capture`, `attackers`, `san` (move names like Nf3) and `chess.svg`.
 
-When the search reaches its depth limit, it cannot look further, so it needs an **estimate** of how good the position is. That estimate is the **heuristic evaluation function**:
+---
+
+## 4. Module by Module
+
+### 4.1 `engine/evaluate.py`: judging a position
+
+When the search hits its depth limit it can't look further, so it needs a guess at how good the position is:
 
 ```
-EVAL(position) = sum over White pieces of (piece value + square bonus)
-               - sum over Black pieces of (piece value + square bonus)
+EVAL = sum over White pieces (piece value + square bonus)
+     - sum over Black pieces (piece value + square bonus)
 ```
 
-**Part 1: Material (declarative knowledge).** Pawn 100, Knight 320, Bishop 330, Rook 500, Queen 900. Bishops are slightly above knights because they usually become stronger in open positions.
+**Material:** pawn 100, knight 320, bishop 330, rook 500, queen 900. The bishop is a touch above the knight because it tends to be better in open positions.
 
-**Part 2: Piece-square tables (heuristic knowledge).** Each piece type has a table of 64 bonuses, one per square. They encode chess principles as numbers:
+**Piece-square tables:** every piece type has 64 numbers, one per square, which turn chess principles into points:
 
 | Principle | How the table encodes it |
 |---|---|
-| Knights belong in the center | Center squares +20, corners -50 |
-| Pawns in the center are strong | e4 and d4 get +20 |
-| Advanced pawns are close to promoting | 7th rank pawns get +50 |
-| Rooks love the 7th rank | +10 on the 7th rank |
-| King hides in the middlegame | Castled squares (g1, b1) get +30, center -50 |
-| King fights in the endgame | A separate endgame table rewards the center (+40) |
+| Knights belong in the center | center +20, corners -50 |
+| Center pawns are strong | e4, d4 +20 |
+| Advanced pawns are close to promoting | 7th rank +50 |
+| Rooks like the 7th rank | +10 |
+| Hide the king in the middlegame | castled squares +30, center -50 |
+| Use the king in the endgame | separate endgame table, center +40 |
 
-**Indexing detail (often asked).** python-chess numbers squares a1 = 0 up to h8 = 63, starting from rank 1. Our tables are written like a printed board, starting from rank 8. So for a White piece we flip the rank with `chess.square_mirror(square)`. For a Black piece, the raw square number already gives the mirror image we need, because Black's tables are White's tables seen from the other side.
+The values come from Michniewski's *Simplified Evaluation Function*.
 
-**Endgame detection.** It counts as an endgame when neither side has a queen, or when every side that does have a queen has at most one minor piece and no rooks. The king then switches to the endgame table.
+**The indexing detail everyone gets confused by:** python-chess numbers squares from a1 = 0 to h8 = 63, starting at rank 1, but the tables are written like a printed board starting at rank 8. So White pieces look up `chess.square_mirror(square)`, and Black pieces use the square number as-is, which already gives Black's mirror image.
 
-**Sanity check.** The starting position evaluates to exactly 0, because it is symmetric. The tests also check that mirroring any position (swapping colours) exactly negates the score.
+**Sanity checks:** the starting position scores exactly 0, and mirroring any position (swapping colours) exactly flips the sign. Both are tested.
 
-### 4.2 `engine/search.py`: How the AI Thinks Ahead
+**`evaluate_advanced()`** is the richer version used by the improved engine. It's described in 4.9.
+
+### 4.2 `engine/search.py`: looking ahead
 
 #### Minimax
 
-Chess is a two-player zero-sum game. **White is MAX** (wants the highest score), **Black is MIN** (wants the lowest score). Minimax assumes both sides play their best:
+White is MAX, Black is MIN, and both are assumed to play their best:
 
 ```
                  White to move (MAX)
@@ -179,136 +169,156 @@ Chess is a two-player zero-sum game. **White is MAX** (wants the highest score),
                max(+3, -2, +1) = +3   ->  play move A
 ```
 
-Move B *looks* tempting because of the +9, but Black would answer with the -2 line. Minimax never hopes the opponent makes a mistake.
+Move B looks tempting because of the +9, but Black would just play into the -2. Minimax never hopes for a mistake.
 
-**Cost:** it visits every node. With about 35 legal moves per position, depth d costs about 35^d nodes: 1,225 at depth 2, 42,875 at depth 3, 1.5 million at depth 4.
+The catch is that it looks at everything. About 35 moves per position means roughly 35^d positions: 1,225 at depth 2, 42,875 at depth 3, 1.5 million at depth 4.
 
 #### Alpha-beta pruning
 
-The same answer as minimax, with far less work. Two numbers travel down the tree:
+Same answer, much less work. Two numbers get passed down the tree:
+- **alpha**: the best White is already guaranteed somewhere else
+- **beta**: the best Black is already guaranteed somewhere else
 
-- **alpha**: the best score White is already guaranteed somewhere else
-- **beta**: the best score Black is already guaranteed somewhere else
+In the tree above: after move A, White knows it can get +3 (alpha = 3). In move B, Black's first reply already gives -2. Black can force -2 there, which is worse for White than the +3 in hand, so White will never go into move B, and we never need to look at the +9. That skip is the prune (`if alpha >= beta: break`).
 
-Using the tree above: after move A we know White can get **+3** (alpha = 3). Now search move B. Black's first reply gives **-2**. Black can already force -2 here, which is worse for White than the +3 already in hand, so **White will never choose move B**. The +9 branch is never searched: that is the **prune**. In code: `if alpha >= beta: break`.
+Alpha-beta never changes the answer, only the amount of work. `test_minimax_and_alphabeta_agree` checks this on four positions at depths 1 to 3.
 
-Alpha-beta never changes the result, it only skips branches that cannot matter. Our test `test_minimax_and_alphabeta_agree` proves this on four positions at depths 1, 2 and 3.
+#### Mate distance
 
-#### Terminal positions and mate distance
+Checkmate is scored `MATE_SCORE - ply` (ply = half-moves from the root), so mate in 1 is worth more than mate in 3. The engine goes for the fastest mate when winning and drags it out when losing.
 
-`terminal_score()` handles game-over positions. Checkmate is scored `MATE_SCORE - ply`, where `ply` counts half-moves from the root. A mate in 1 is therefore worth more than a mate in 3, so the engine plays the **fastest** mate when winning and delays mate as long as possible when losing.
+#### Quiescence search
 
-#### Quiescence search (fixes the horizon effect)
+The horizon effect: at depth 2 the engine might see "my queen takes a pawn", stop there, and think it won a pawn, because the recapture is one move past its horizon. So at depth 0 we keep searching captures only, until things go quiet. "Stand pat" means the side to move can also just not capture, so the static evaluation is a floor (for White) or ceiling (for Black). We cap it at 8 extra plies.
 
-**The horizon effect:** at depth 2 the engine might see "my queen takes a pawn" and stop there, believing it won a pawn, because the recapture of the queen is just beyond its horizon.
+#### `find_best_move()`
 
-**The fix:** when depth reaches 0, keep searching **captures only** until the position is quiet. "Stand pat" means the side to move may decline to capture, so the static evaluation acts as a floor (for White) or ceiling (for Black). Captures are limited to 8 extra plies for safety.
+Tries every legal move at the root, scores each with minimax or alpha-beta, returns the best one plus stats. It works on a copy of the board so it never messes up the real game (tested).
 
-#### `find_best_move()`: the entry point
+### 4.3 `engine/ordering.py`: good moves first
 
-It tries every legal move at the root, scores each with minimax or alpha-beta, and returns the best one together with statistics (nodes, time). It copies the board first, so the caller's game is never modified (also tested).
+Alpha-beta prunes most when the best move is tried first. We can't know it in advance, so we guess:
+1. Captures, by **MVV-LVA** (Most Valuable Victim, Least Valuable Attacker): `10 x victim - attacker`, so pawn takes queen (8,900) goes before queen takes pawn (100)
+2. Promotions
+3. Checks
+4. Everything else
 
-### 4.3 `engine/ordering.py`: Searching Good Moves First
+At depth 4 this alone cut the nodes by 89.2%.
 
-Alpha-beta prunes the most when the best move is searched first. We cannot know the best move in advance, so we guess cheaply:
+### 4.4 `assistant/blunder.py`: judging your move
 
-1. **Captures, by MVV-LVA** (Most Valuable Victim, Least Valuable Attacker). Score = 10 × victim value − attacker value, so pawn takes queen (8,900) comes before queen takes pawn (100).
-2. **Promotions.**
-3. **Checks.**
-4. Everything else.
-
-Measured effect at depth 4: **89.2% fewer nodes** than alpha-beta without ordering (section 6).
-
-### 4.4 `assistant/blunder.py`: Judging the Player's Move
-
-The coach asks the engine two questions:
-
-1. **"What is the best move here, and what is it worth?"** `find_best_move(position, depth 3)`
-2. **"What is the player's move worth?"** Play the move, then `find_best_move(new position, depth 2)`. One half-move has already been played, so this searches exactly the same part of the tree that question 1 searched for that move.
+The coach asks the engine:
+1. "What's the best move here and what's it worth?" (`find_best_move(position, depth 3)`)
+2. "What's the move you played worth?" (play it, then `find_best_move(new position, depth 2)`; one half-move is already played, so this covers exactly the same part of the tree)
 
 ```
-centipawn loss = score(best move) − score(played move)     (from the player's side)
+centipawn loss = score(best move) - score(your move)    (from your side)
 ```
 
 | Loss | Label | Symbol |
 |---|---|---|
-| 0 (or same move as engine) | Best | ! |
+| 0, or the engine's own move | Best | ! |
 | under 50 | Good | |
 | 50 to 99 | Inaccuracy | ?! |
 | 100 to 199 | Mistake | ? |
 | 200 or more | Blunder | ?? |
 
-The symbols are the standard annotation symbols used in chess books.
+One subtle bug we had to handle: question 2 starts one half-move later, so a mate it finds is counted one ply "closer". Without fixing that, playing the engine's own mating move showed a loss of 1. `_one_ply_later()` shifts mate scores by one ply.
 
-**A subtle detail.** Question 2 searches from one half-move later, so any mate it finds is counted one ply "closer" than question 1 would count it. Without correction, playing the engine's own mating move could show a loss of 1. `_one_ply_later()` shifts mate scores by one ply to fix this.
+The coach always uses depth 3 with the basic, exact search, whatever difficulty you're playing on, so your moves are judged the same way every time.
 
-**Why the coach always uses depth 3:** the opponent's difficulty changes how well the opponent plays, but the user's moves should be judged by the same standard on every level.
+### 4.5 `assistant/explain.py`: the expert system
 
-### 4.5 `assistant/explain.py`: Explaining in English (Expert System)
+The engine decides *if* a move is bad. These rules work out *why*. They only run on moves already labelled Inaccuracy or worse, so they can't invent problems with good moves.
 
-This module is a **rule-based expert system**. The engine decides **if** a move is bad (numbers). The rules explain **why** (words). The rules only run on moves the engine already labelled Inaccuracy, Mistake or Blunder, so they never invent problems with good moves.
-
-| Rule | Fires when | Example output |
+| Rule | Fires when | Example |
 |---|---|---|
-| 1. Walking into mate | The played move's score is "opponent mates" | "This move walks into checkmate: your opponent plays Qh4#." |
-| 2. Missed mate | The best move's score is "you mate", the played one is not | "You missed a checkmate in one move, starting with Ra8#." |
-| 3a. Moved piece hangs | Opponent's best reply captures the piece you just moved | "You moved your bishop to a6, where it is undefended and can be captured for free. Your opponent can play Nxa6." |
-| 3b. Defender moved away | Reply captures a piece that was safe before your move | "Your pawn on e5 is no longer protected after this move. Your opponent can play Nxe5." |
-| 3c. Other material loss | Reply captures something else | "Your opponent can now win your knight on f3 with ..." |
-| 4. Hanging piece | A piece is attacked and undefended, or attacked by a cheaper piece | "Your rook on e5 can be taken by their pawn, a less valuable piece." |
-| 5. Missed free capture | Best move captured an undefended piece | "You missed a free queen on d5 (Nxd5)." |
-| Tips | Opening principles, first 10 moves | Early queen, king move that loses castling, knight on the rim |
+| Walking into mate | your move lets the opponent mate | "This move walks into checkmate: your opponent plays Qh4#." |
+| Missed mate | the best move mated, yours didn't | "You missed a checkmate in one move, starting with Ra8#." |
+| Moved piece hangs | the reply takes the piece you just moved | "You moved your bishop to a6, where it is undefended and can be captured for free." |
+| Defender moved away | the reply takes a piece that was safe before | "Your pawn on e5 is no longer protected after this move." |
+| Other material loss | the reply wins something else | "Your opponent can now win your knight on f3 with ..." |
+| Hanging piece | something is attacked and undefended, or attacked by a cheaper piece | "Your rook on e5 can be taken by their pawn, a less valuable piece." |
+| Missed free capture | the best move took an undefended piece | "You missed a free queen on d5 (Nxd5)." |
+| Opening tips | first 10 moves | early queen, losing castling rights, knight on the rim |
 
-**`describe_move_idea()`** explains what a *good* move achieves, in priority order: delivers checkmate, wins material, promotes, castles, rescues a piece in danger, gives check, **stops a mate threat**, protects a piece, develops a piece, takes the center. It is used for "Better was ..." and for hints.
+`describe_move_idea()` does the opposite: it explains what a *good* move achieves (mates, wins material, promotes, castles, saves a piece, gives check, stops a mate threat, protects a piece, develops, takes the center). It's used for "Better was ..." and for hints.
 
-**Threat detection with a null move.** To find out what the opponent is threatening, we let the side to move "pass" (a null move, which is illegal in real chess but a standard engine technique) and check whether the opponent would then have a mate in one. If our move removes that, the explanation says so: "g6 stops your opponent's checkmate threat (Qxf7#)."
+**Spotting threats with a null move:** to find out what the opponent is threatening, we let the side to move "pass" (illegal in real chess, but a standard engine trick) and check if the opponent would then have mate in one. If your move removes that, the coach says so: "g6 stops your opponent's checkmate threat (Qxf7#)."
 
-**Why rules and not machine learning?** A teaching tool must never explain wrongly. Every sentence here traces back to one rule and one verifiable fact about the board. A neural network would need a large labelled dataset of explanations (which does not exist for free) and could produce confident nonsense.
+**Why rules and not ML?** We didn't want a teaching tool that can be confidently wrong. Every sentence comes from one rule and one fact you can check on the board. A neural net would need a big labelled dataset of explanations (which doesn't exist for free) and could still make things up.
 
 ### 4.6 `assistant/hints.py`
 
-`get_hint(board)` runs the engine at the coach depth and wraps the best move with `describe_move_idea()`, for example "Try Nxd5: it wins their queen for free." The app draws it as a green arrow on the board.
+Runs the engine at the coach's depth and wraps the best move with `describe_move_idea()`: "Try Nxd5: it wins their queen for free." The app draws it as a green arrow.
 
-### 4.7 `app.py`: The Interface
+### 4.7 `app.py`
 
-**Streamlit's execution model.** Streamlit re-runs the entire script from the top on every click. Anything that must survive between clicks lives in `st.session_state`. This is why the board, the reviews and the feedback are stored there.
+Streamlit reruns the whole script from the top on every click, so anything that needs to survive (board, reviews, feedback) lives in `st.session_state`.
 
-**Difficulty levels:**
+| Level | Engine | Behaviour |
+|---|---|---|
+| Easy | basic engine, depth 1, no quiescence | Greedy. Grabs material even when it gets recaptured, so a beginner can punish it |
+| Medium | basic engine, depth 2 | Sees direct threats |
+| Hard | improved engine, 0.5 s per move, at least depth 3 | Usually depth 3 to 5 |
+| Expert | improved engine, 2 s per move, at least depth 4 | Usually depth 4 to 8 |
 
-| Level | Search depth | Quiescence | Behaviour |
-|---|---|---|---|
-| Easy | 1 | Off | Greedy: grabs material even when the piece gets recaptured, so beginners can punish it |
-| Medium | 2 | On | Sees direct threats |
-| Hard | 3 | On | Sees simple combinations |
-| Expert | 4 | On | Strongest, about 1 to 2 seconds per move |
+Take back removes your move and the engine's reply, including their reviews, so you can retry after a blunder.
 
-**Screen layout:** a clickable board (click a piece to see dots on the squares it can reach, click a dot to move; last move highlighted, check shown in red, hint arrow in green, a picker for pawn promotion) and engine statistics on the left. On the right: Hint / Take back, an "Or type your move" box for keyboard users, the coach panel (label badge, explanation, better move, tips, and a small board of the position before your move with a red arrow for your move and a green one for the better move), and the annotated move list with a summary such as `Best 3 Good 5 Inaccuracy 1 Mistake 0 Blunder 1`.
+### 4.8 `board_component/index.html`: the clickable board
 
-**Take back** removes the engine's reply and your move, and deletes their reviews, so you can retry after a blunder. This is a deliberate teaching feature.
+Streamlit doesn't have a clickable chessboard, so we wrote a small custom component in plain HTML and JavaScript (no build step, no npm). Python sends it the position, the list of legal moves, the last move, the check square, any arrows, and the piece pictures (taken from python-chess so they match the other boards). The board draws all that, shows dots on the squares the selected piece can reach, and sends back the move you clicked. Python checks the move is legal again before playing it, so the board itself knows no chess rules at all.
+
+### 4.9 `engine/strong.py` and `evaluate_advanced()`: the improved engine
+
+The basic engine is correct but shallow: in the time it gets, it sees 3 or 4 half-moves. So in Phase 5 we added the standard techniques real engines use on top of alpha-beta. What uses which engine:
+
+| Part of the app | Engine | Why |
+|---|---|---|
+| Easy, Medium | basic, depth 1 or 2 | meant to be beatable |
+| Hard, Expert | improved | meant to be strong |
+| Coach and hints | basic, exact depth 3 | the coach compares two searches, and those only agree reliably if both are exact |
+| `compare_search.py` and the report tables | basic `minimax()` / `alphabeta()` | left untouched so the Phase 2 numbers still reproduce |
+
+**Negamax.** The improved search is alpha-beta in negamax form. Since min(a, b) = -max(-a, -b), if every score is from the side to move's point of view, one branch does the job of minimax's two: my best score is the max of minus my opponent's best. Same algorithm, half the code, which matters once every node is doing several extra things.
+
+**Iterative deepening with a time limit.** Search depth 1, then 2, then 3, until time runs out, and play the best move from the deepest search that finished. It sounds wasteful, but each depth costs several times more than the last, so the repeats are cheap, and each pass tells the next one which move to try first. Testing showed we needed two extra rules (see the Phase 5 log): a **minimum depth** that always finishes (3 on Hard, 4 on Expert), and **keeping the partial result** when time runs out mid-depth (the previous best move is searched first, so anything that already beat it is proven better).
+
+**Transposition table.** The same position often comes up through different move orders (1.e4 e5 2.Nf3 and 1.Nf3 e5 2.e4). A dictionary keyed by position stores depth, score and best move so we don't search it twice. Scores are stored with a flag (exact / at least / at most) because alpha-beta often only proves a bound.
+
+**Move ordering.** Transposition-table move first, then captures (MVV-LVA), promotions, **killer moves** (quiet moves that caused a cut-off in a sibling position), then quiet moves by **history score** (how often that from-to move caused cut-offs anywhere).
+
+**Null-move pruning.** Pass and let the opponent move twice. If we're still above beta, a real move would be even better, so we cut the line after a shallow search. Not used in check, or with only king and pawns, because of zugzwang (positions where passing would actually be better than any real move). Same null-move trick the coach uses for threats.
+
+**Principal variation search and late move reductions.** After the first (probably best) move, the rest only get a cheap yes/no test: "is this better than alpha?" Quiet moves late in the list get searched one ply shallower first, and only get a full search if they surprise us.
+
+**Check extension.** One ply deeper when in check, because checks are forcing and that's where short tactics hide.
+
+**Repetition on the first repeat.** The basic search only noticed *threefold* repetitions, so it happily walked into repeated positions and drew won games (16 of our 17 Phase 4 draws). Now any position already seen in the game or on the search path counts as a draw, so a winning engine avoids it.
+
+**`evaluate_advanced()`** adds to the basic evaluation:
+- *Tapered evaluation*: a middlegame score and an endgame score blended by game phase (24 with all pieces on, 0 with just kings and pawns), instead of a sudden switch.
+- *Pawn structure*: passed pawns (bigger bonus the further they've gone, doubled in the endgame), doubled pawns -15, isolated pawns -15.
+- *Pieces*: bishop pair +30, rook on an open file +20, half-open +10.
+- *King shelter*: +10 per pawn in front of the king, middlegame only.
+- *Mop-up*: when a side is a rook or more ahead, reward pushing the enemy king to the edge and bringing our king closer, so it can actually finish the game. Tested: king and queen against king ends in mate.
+- *Speed*: profiling showed evaluation was 70% of the search time. Reading pieces straight from bitmasks, precomputing value + square tables, and caching pawn-structure scores by pawn layout (a pawn hash table) made the search about 1.7x faster.
 
 ---
 
-## 5. Testing Strategy
+## 5. Testing
 
-| File | Tests | What they prove |
-|---|---|---|
-| `tests/test_engine.py` | 9 | Start position scores 0; evaluation is colour-symmetric; **alpha-beta returns the same score as minimax**; mate in 1 found for both colours; mate in 2 found; free queen taken; poisoned pawn avoided; caller's board not modified |
-| `tests/test_assistant.py` | 13 | Hanging bishop = Blunder with the right square named; missed free queen; Fool's Mate detected with "Qh4#"; missed mate; mating move praised as Best; early queen tip; knight on rim tip; e4 gets no complaints; Black's moves reviewed too; Scholar's Mate defence explained; "no longer protected" rule; hints find the free queen and the mate |
-| `tests/compare_search.py` | experiment | Node counts and times for minimax vs alpha-beta vs alpha-beta + ordering |
-| `tests/benchmark.py` | experiment | 90 full games against Stockfish 16 at skill levels 0 to 2 (Phase 4) |
-| `tests/make_charts.py` | charts | Turns the CSV results into the PNG charts used in the report |
+| File | What it covers |
+|---|---|
+| `tests/test_engine.py` (12 tests) | Start position scores 0; evaluations are colour-symmetric; alpha-beta gives the same score as minimax; mate in 1 for both colours; mate in 2; takes a free queen; refuses a poisoned pawn; doesn't modify the caller's board; the improved engine passes the same tactics and mates with king and queen vs king |
+| `tests/test_assistant.py` (13 tests) | Hanging bishop is a Blunder with the right square named; missed free queen; Fool's Mate caught with "Qh4#"; missed mate; mating move praised as Best; early queen tip; knight on the rim; e4 gets no complaints; Black's moves reviewed too; Scholar's Mate defence explained; "no longer protected" rule; hints find the free queen and the mate |
+| `tests/compare_search.py` | Node counts and times: minimax vs alpha-beta vs alpha-beta + ordering |
+| `tests/benchmark.py` | 90 games vs Stockfish 16 at skill 0 to 2 |
+| `tests/engine_match.py` | Matches between any two engines (old, new, new search with old eval, Stockfish), 10 openings x both colours |
+| `tests/make_charts.py` | The PNG charts in the report |
+| `benchmark_live.py` | Not a test: watch our engine play Stockfish in the browser |
 
-Run them:
-
-```bash
-python -m tests.test_engine
-python -m tests.test_assistant
-python -m tests.compare_search
-python -m tests.benchmark          # needs Stockfish installed; 30 to 60 minutes
-python -m tests.make_charts
-```
-
-The app itself was tested headlessly with Streamlit's `AppTest` (play, hint, take back, change difficulty) and visually in a real Chromium browser.
+We also tested the app headlessly with Streamlit's `AppTest` (play, hint, take back, difficulty changes, the improved engine on Hard) and by actually clicking through it in a browser.
 
 ---
 
@@ -316,29 +326,27 @@ The app itself was tested headlessly with Streamlit's `AppTest` (play, hint, tak
 
 ### Search efficiency (Phase 2)
 
-Total nodes across four positions (start, Italian opening, middlegame, endgame), quiescence off so every variant searches the same tree:
+Total positions searched over four test positions (start, Italian, middlegame, endgame), quiescence off so every variant searches the same tree:
 
 | Depth | Minimax | Alpha-beta | Alpha-beta + ordering | Saving vs minimax |
 |---|---|---|---|---|
 | 2 | 3,627 | 1,320 | 461 | **87.3%** |
 | 3 | 117,954 | 15,895 | 4,296 | **96.4%** |
-| 4 | not run (minutes) | 182,963 | 19,722 | ordering alone: **89.2%** |
+| 4 | not run (takes minutes) | 182,963 | 19,722 | ordering alone: **89.2%** |
 
-All variants chose moves with identical scores at every depth. Full table: `docs/results/search_comparison.md`.
+Same scores every time. Full table in `docs/results/search_comparison.md`.
 
 ### Speed (Phase 3)
 
-| Operation | Typical time |
+| What | Typical time |
 |---|---|
 | Engine move, depth 3 | 0.06 to 0.8 s |
 | Engine move, depth 4 | 0.06 to 2.3 s |
-| Coach review of one move | 0.02 to 1.1 s (average 0.84 s in the busiest middlegame) |
-
-So a full turn on Expert (review plus engine reply) stays within about 3 seconds.
+| Coach reviewing one move | 0.02 to 1.1 s |
 
 ### Playing strength (Phase 4)
 
-90 games against Stockfish 16 at Skill Levels 0 to 2 (out of 20), 10 per pairing (5 openings x both colours). Score = wins + 0.5 x draws.
+90 games against Stockfish 16 at skill 0 to 2 (out of 20), 10 per pairing (5 openings x both colours). Score = wins + half the draws.
 
 | Our depth | vs Skill 0 | vs Skill 1 | vs Skill 2 | Total | W / D / L |
 |---|---|---|---|---|---|
@@ -348,135 +356,202 @@ So a full turn on Expert (review plus engine reply) stays within about 3 seconds
 
 Charts: `docs/results/chart_nodes.png`, `chart_time.png`, `chart_benchmark.png`.
 
+### Playing strength after the improvements (Phase 5)
+
+20 games per match (10 openings x both colours), Stockfish 19 at 0.05 s per move. Every game is in `docs/results/match_*.csv`.
+
+**Head to head** (Hard settings: new engine 0.5 s per move, old engine depth 3)
+
+| Match | W / D / L | Score | Elo difference |
+|---|---|---|---|
+| New engine vs old engine | 13 / 4 / 3 | **75%** | about +190 |
+| New search + old evaluation vs old engine | 15 / 5 / 0 | 88% | about +340 |
+| New evaluation vs old evaluation (same new search) | 15 / 2 / 3 | **80%** | about +240 |
+
+**Against Stockfish 19**
+
+| Level | Engine | vs Skill 2 | vs Skill 4 | vs Skill 6 |
+|---|---|---|---|---|
+| Hard | old (depth 3) | 40% | 30% | 15% |
+| Hard | new, first version (0.5 s) | 72% | 20% | 12% |
+| Hard | **new, final (0.5 s, min depth 3)** | not re-run | **42%** | **20%** |
+| Expert | old (depth 4) | | | 12% |
+| Expert | **new, final (2 s, min depth 4)** | | | **42%** |
+
+What we take from this:
+- Expert improved the most: 12% (1 win in 20) to 42% (5 wins, 7 draws) against skill 6, roughly +285 Elo.
+- Hard only came out ahead once we fixed the time management (see the Phase 5 log). The first version actually looked worse against skill 4 and 6.
+- 20 games per match means each score is only good to about ±10 points. What makes us trust the results is that every comparison points the same way, not any single number.
+- These can't be compared directly with the Phase 4 table (different Stockfish version, openings and skill levels).
+
 ---
 
 ## 7. Development Log
 
-All four phases were built on 9 and 10 October 2026 (see section 13). Each phase has its own git branch (section 10).
+Phases 1 to 4 were built on 9 and 10 October 2026, each on its own branch. The click-to-move board and Phase 5 followed on 11 October.
 
-### Phase 1: Formulation and Board (branch `phase-1-formulation-board`)
-
-**Built**
-- `docs/formulation.md`: state, actions, transition model, terminal test, utility, PEAS, environment properties, knowledge types, why AI is required, techniques chosen and alternatives rejected (MCTS, reinforcement learning, Stockfish).
-- `app.py`: a playable board in Streamlit against a **random-move** opponent, with full rule enforcement, play as White or Black, and a move list.
-
-**Problems and fixes**
-- *python-chess would not install* on the system Python (a setuptools error: `install_layout`). **Fix:** use a virtual environment with up-to-date pip and setuptools. This is also why the README tells you to create a venv.
-- *Streamlit has no clickable chessboard.* **Decision:** choose moves from a dropdown of legal moves. It is reliable and makes illegal moves impossible.
-- *Later: the dropdown felt nothing like real chess.* **Fix:** a click-to-move board in `board_component/index.html`, a Streamlit custom component written in plain HTML and JavaScript (no build step). Python sends the position and the list of legal moves; the board draws them and sends back the clicked move, which Python checks again before playing. Two bugs came up while building it: (1) giving the board the widget key `"board"` overwrote the game stored in `st.session_state.board`, so the key is now `"board_clicks"`; (2) a component keeps returning its last value on every rerun, so after Take back the same click would have been replayed. Each click now carries a unique id and Python ignores ids it has already handled.
-
-### Phase 2: The Engine (branch `phase-2-engine`)
+### Phase 1: Formulation and board
 
 **Built**
-- Evaluation function (material + piece-square tables, separate endgame king table).
-- Minimax, alpha-beta, quiescence search, mate-distance scoring, node counting.
-- MVV-LVA move ordering.
-- Engine connected to the app, with a depth slider and evaluation / nodes / time display.
-- 9 tests and the search comparison experiment.
+- `docs/formulation.md`: state, actions, transition model, terminal test, utility, PEAS, environment properties, knowledge types, why AI is needed, and the techniques we picked and rejected (MCTS, reinforcement learning, just using Stockfish).
+- A first `app.py`: playable board against a random-move opponent, full rules, play as White or Black, move list.
 
-**Problems and fixes**
-- *The mate-in-2 test failed twice, and both times the test was wrong, not the engine.* First, the position had a mate in **1**, which the engine correctly found (it reported mate in 1, the test expected 2). Second, the corrected position put a rook on f1 that could not reach e8. **Fix:** used doubled rooks on the e-file, and the test now first verifies that no mate in 1 exists. **Lesson:** test your tests.
-- *The dropdown defaulted to the alphabetically first move (Na3)*, so clicking Play without choosing played a random-looking move. **Fix:** the selector starts empty and Play is disabled until a move is chosen.
-- *Plain minimax at depth 4 takes minutes in Python.* **Decision:** the experiment runs minimax only up to depth 3 and states this openly. This is itself evidence for why pruning is necessary.
+**Problems**
+- python-chess wouldn't install on the system Python (a setuptools `install_layout` error). A virtual environment with up-to-date pip and setuptools fixed it, which is why the README starts with a venv.
+- Streamlit has no clickable chessboard, so the first version picked moves from a dropdown of legal moves. Reliable, and illegal moves were impossible, but it felt nothing like chess.
 
-### Phase 3: The Beginner Assistant (branch `phase-3-assistant`)
+### Phase 2: The engine
 
 **Built**
-- `assistant/blunder.py`: move review by centipawn loss, five labels with chess symbols, mate-distance correction.
-- `assistant/explain.py`: rule-based explanations (5 rules plus 3 opening tips), `describe_move_idea()`, null-move threat detection.
-- `assistant/hints.py`: hint with the reason behind it.
-- App: difficulty levels (Easy / Medium / Hard / Expert), coach toggle, coach panel with coloured badge, "position before your move" board with red and green arrows, hint arrow, Take back, annotated move history and a label summary.
-- 13 assistant tests.
+- Evaluation (material + piece-square tables, separate endgame king table).
+- Minimax, alpha-beta, quiescence, mate-distance scoring, node counting.
+- MVV-LVA ordering.
+- Engine hooked into the app with a depth setting and evaluation / nodes / time display.
+- 9 tests and the minimax vs alpha-beta experiment.
 
-**Problems and fixes**
-- *Filler explanations.* For inaccuracies the coach said "Your opponent's strongest reply is Nc6", which teaches nothing. **Fix:** that fallback now only appears for mistakes and blunders. For inaccuracies, the better move and the tips carry the lesson.
-- *Misleading wording.* After ...Nd4 the coach said "your pawn on e5 is undefended", when the real lesson is that the knight *was* defending it. **Fix:** new rule 3b compares the position before and after the move and says "is no longer protected after this move".
-- *Vague praise.* The best defence to the Scholar's Mate threat, ...g6, was described as "improves your position". **Fix:** added null-move threat detection, so it now says "stops your opponent's checkmate threat (Qxf7#)". This also improved the "Better was ..." line for the blunder ...Nf6??.
-- *A test used an illegal move* (h3 in a position where White has no h-pawn). **Fix:** used Kf2.
-- *Summary badges wrapped badly* (the count fell onto the next line). **Fix:** the count is now inside each badge.
+**Problems**
+- The mate-in-2 test failed twice, and both times the test was wrong, not the engine. First the position actually had a mate in 1 (the engine found it; the test expected 2). Then the fixed position had a rook on f1 that couldn't reach e8. We switched to doubled rooks on the e-file, and the test now checks there's no mate in 1 first. Lesson: test your tests.
+- The dropdown defaulted to the alphabetically first move (Na3), so clicking Play without choosing played a random-looking move. The selector now starts empty and Play stays disabled until you pick.
+- Plain minimax at depth 4 takes minutes in Python, so the experiment only runs minimax up to depth 3 and says so. Honestly, that's the best argument for pruning there is.
 
-### Phase 4: Testing, Benchmark and Report (branch `phase-4-testing-report`)
+### Phase 3: The coach
 
 **Built**
-- `tests/benchmark.py`: plays our engine against Stockfish 16 at Skill Level 0, 1 and 2 (out of 20), 0.05 s per Stockfish move. Our engine plays at depths 2, 3 and 4 with the same settings as the app's Medium, Hard and Expert levels. 10 games per pairing, 90 games in total. Every game's full move list is saved, so any game can be replayed.
-- `tests/make_charts.py`: three report charts (nodes searched, time per move, benchmark score), with a colour-blind-checked palette and direct labels on every line.
-- `docs/REPORT.md`: the final report, following the course rubric (formulation, knowledge, why AI, techniques, design, evaluation, limitations, references).
-- `docs/DEMO.md`: a timed 5-minute demo script with exact moves, talking points and a "what if it goes wrong" table.
-- A 14-slide presentation deck built from the same material (shared separately, not in the repository).
+- `blunder.py`: move review by centipawn loss, five labels with chess symbols, mate-distance correction.
+- `explain.py`: the explanation rules, opening tips, `describe_move_idea()`, null-move threat detection.
+- `hints.py`: hints with the reason behind them.
+- App: difficulty levels, coach toggle, coach panel with coloured badge, a "position before your move" board with red and green arrows, hint arrow, take back, annotated move history and a summary.
+- 13 coach tests.
 
-**Design choices in the benchmark**
-- *Why 5 openings x 2 colours?* Our engine is deterministic: given the same position it always plays the same move. Without different starting positions, many games would be exact repeats and the results would be meaningless. Playing both colours from each opening also cancels out White's first-move advantage.
-- *Why Stockfish's lowest skill levels?* At full strength Stockfish would win every game, which measures nothing. Skill Levels 0 to 2 make it deliberately choose weaker moves with some randomness, giving a beatable reference opponent.
-- *Why a 200 half-move cap?* Neither side has an endgame plan, so some games would shuffle forever. Games past the cap are scored as draws, and the summary reports how many draws came from the cap.
+**Problems**
+- *Filler explanations.* For inaccuracies the coach said things like "Your opponent's strongest reply is Nc6", which teaches nothing. That line now only appears for mistakes and blunders.
+- *Misleading wording.* After ...Nd4 it said "your pawn on e5 is undefended", when the real lesson was that the knight *had been* defending it. We added a rule that compares before and after: "is no longer protected after this move".
+- *Vague praise.* The right defence to the Scholar's Mate threat, ...g6, was described as "improves your position". Adding null-move threat detection made it "stops your opponent's checkmate threat (Qxf7#)". That also improved the "Better was ..." line for the blunder ...Nf6??.
+- A test used an illegal move (h3 with no h-pawn). Replaced with Kf2.
+- The summary badges wrapped badly, with the count falling onto the next line, so the count now sits inside each badge.
 
-**Problems and fixes**
-- *Stockfish was not available at first.* The package manager could not find it until its package lists were refreshed (`apt-get update`); after that, Stockfish 16 installed normally. On Windows or Mac it is a download from stockfishchess.org.
-- *Depth 4 is slow.* A full depth-4 game takes 1 to 2 minutes, so the full benchmark takes 30 to 60 minutes. **Fix:** split the run across two processes (one per CPU core) with `--depths` and `--skills` options, then merge the results with `--summarize`.
-- *The machine restarted halfway through the run*, killing both processes after 55 of 90 games. Because the script saves after every single game, nothing was lost. **Fix:** added resume support, so restarting the same command skips games already in the CSV file. Long experiments should always be restartable.
-- *Running two benchmark processes at once shares the CPU*, so the "time per move" numbers in the benchmark are slightly higher than on an idle machine. The clean timing numbers are the ones from `compare_search.py` (section 6).
+### Phase 4: Benchmark and report
 
-**Results** (full table in section 6 and `docs/results/benchmark_summary.md`)
-- Score against Stockfish Skill 0 to 2, 30 games per depth: **depth 2: 33%**, **depth 3: 65%**, **depth 4: 80%** (21 wins, 6 draws, 3 losses).
-- 16 of 17 draws were threefold repetitions, confirming limitation 6 in section 9.
-- With only 10 games per pairing, differences between Stockfish skill levels are noise; the depth trend is the real finding.
+**Built**
+- `tests/benchmark.py`: our engine vs Stockfish 16 at skill 0, 1, 2, at depths 2, 3 and 4 (same settings as Medium, Hard, Expert at the time). 10 games per pairing, 90 total, every move list saved.
+- `tests/make_charts.py`: the three report charts, colour-blind checked.
+- `docs/REPORT.md` and `docs/DEMO.md`.
+
+**Why we set it up this way**
+- *5 openings x 2 colours:* our engine is deterministic, so without different starts many games would be exact repeats. Playing both colours also cancels out White's first-move advantage.
+- *Stockfish's lowest skill levels:* at full strength it wins every game and we learn nothing.
+- *200 half-move cap:* neither side had an endgame plan, so some games would shuffle forever. Capped games count as draws.
+
+**Problems**
+- Stockfish wasn't available at first; the package lists needed an `apt-get update`.
+- Depth 4 is slow (1 to 2 minutes per game), so the full benchmark takes 30 to 60 minutes. We split it across two processes and merged the results.
+- The machine restarted 55 games into the 90. Because results were saved after every game, nothing was lost, and we added resume support so the same command just carries on. Long experiments should always be restartable.
+- Two benchmark processes share the CPU, so the time-per-move numbers there are a bit high. The clean timings are the ones from `compare_search.py`.
+
+**Result:** 33% / 65% / 80% at depths 2 / 3 / 4. 16 of the 17 draws were threefold repetitions, which became a Phase 5 target.
+
+### The clickable board
+
+The dropdown had to go. We wrote `board_component/index.html`, a Streamlit custom component in plain HTML and JavaScript (described in 4.8). Two bugs came up:
+- We gave the board the widget key `"board"`, which quietly overwrote the game stored in `st.session_state.board`, and the app crashed with "dict has no attribute is_game_over". The key is now `"board_clicks"`.
+- A component keeps returning its last value on every rerun, so after Take back, the same click would have been replayed. Each click now carries a unique id, and Python ignores ids it has already handled.
+
+The app was then deployed for free on Streamlit Community Cloud: https://chessassist.streamlit.app/
+
+### Phase 5: Making the engine stronger
+
+**Built**
+- `engine/strong.py` and `evaluate_advanced()` (section 4.9), used on Hard and Expert.
+- `tests/engine_match.py`, which plays any two engines against each other in parallel.
+- 3 more engine tests (12 total).
+- `benchmark_live.py`, to watch games against Stockfish in the browser.
+- Stockfish 19 installed with `winget install Stockfish.Stockfish`; `find_stockfish()` now also looks in winget's folder.
+
+**Problems, and how we tracked them down**
+1. *The first version was barely deeper than the old engine in middlegames.* A profiler showed evaluation was 70% of the time, mostly inside python-chess's `piece_map()`. Reading bitmasks directly, precomputing tables and caching pawn structure made it about 1.7x faster. Adding principal variation search and late move reductions then shrank the tree enough to reach depth 4 to 8 in 2 seconds.
+2. *Was the new evaluation actually helping?* The new search with the old evaluation scored 88% against the old engine, better than the full new engine's 75%, which made it look like our evaluation was hurting. So we played them against each other directly: same search, new eval vs old eval. The new evaluation won 80% (+15 =2 -3). The earlier gap was just noise from small samples against a third engine. Lesson: compare two versions directly, and don't over-trust 20 games.
+3. *Against Stockfish skill 4 and 6, new "Hard" was no better than old "Hard"*, even though it beat old Hard 75% head to head. That didn't add up, so we used full-strength Stockfish purely as an analysis tool (it never picks our moves) to find our engine's real blunders in the lost games: 42 of them. Then we replayed every one of those positions under different settings:
+
+   | Setting | Blunders avoided (out of 42) |
+   |---|---|
+   | new engine, 0.5 s, as played | 4 |
+   | null-move pruning off | 3 |
+   | late move reductions off | 3 |
+   | both off | 2 |
+   | **new engine, 2 s** | **20** |
+   | old engine, depth 3 | 15 |
+
+   Turning pruning off didn't help at all, but more time did. So the problem was **time, not pruning**. In sharp middlegames the old depth-3 search takes about a second, so the "Hard vs Hard" comparison had quietly been giving the old engine more time than the new one's 0.5 s. On top of that, the new engine threw away any depth it hadn't finished. The fix was a minimum depth that always finishes (3 on Hard, 4 on Expert) and keeping the partial result of an unfinished depth.
+
+   We also realised running 4 games at once was biasing things: a time-limited engine loses depth when it shares the CPU, while a fixed-depth engine just takes longer. Matches now run 3 at a time.
+
+   **After the fix:** new Hard vs Stockfish skill 4 went from 20% to 42%, and Expert vs skill 6 from 12% to 42%.
+4. *A 49-move loss turned out to be a horizon problem, not a bug.* The engine grabbed a pawn with Qxc2 and walked into a knight fork whose payoff was 5 to 6 half-moves away, just past what 0.5 seconds could see.
 
 ---
 
-## 8. Design Decisions and Trade-offs
+## 8. Design Decisions
 
-| Decision | Alternative | Why we chose this |
+| We chose | Over | Because |
 |---|---|---|
-| python-chess for rules | Write move generation ourselves | Rules are not AI; writing them would cost weeks and add bugs |
-| Minimax with explicit MAX/MIN branches | Negamax (one branch with sign flipping) | Matches the textbook and is easier to explain; negamax is shorter but hides the MAX/MIN idea |
-| Alpha-beta kept as a separate function from minimax | Only alpha-beta | Lets us measure the improvement on identical trees |
-| Fixed coach depth 3 | Coach at opponent depth | Consistent judging on every level; depth 3 is fast enough (about 1 s) |
-| Rule-based explanations | ML / language model | Correct, predictable and traceable; no training data needed |
-| Streamlit | pygame | Runs in a browser, easy to demo, less UI code; the clickable board needed one small custom component |
-| Python | C++ | Readability for a course project matters more than speed |
+| python-chess for the rules | writing move generation | rules aren't AI; it would have cost weeks and bugs |
+| Explicit MAX/MIN minimax in the basic engine | negamax | matches the textbook, easier to explain on a whiteboard |
+| Negamax in the improved engine | MAX/MIN | every node does several extra things now; writing them twice would double the code |
+| Keeping alpha-beta separate from minimax | only alpha-beta | so we could measure the saving on identical trees |
+| Improved engine in a new file | upgrading `alphabeta()` in place | the report's comparison and the coach's exact search keep working unchanged |
+| Coach at a fixed depth 3, exact search | coach at the opponent's level | consistent judging; pruning tricks could make it blame good moves |
+| Rule-based explanations | ML or a language model | correct, predictable, traceable, no training data needed |
+| Time limit + minimum depth on Hard / Expert | fixed depth | predictable waiting time on any computer, deeper in simple positions |
+| Easy / Medium on the basic engine | a weakened improved engine | the basic engine's mistakes are the human-looking ones a beginner can punish |
+| Streamlit + a small custom board component | pygame | runs in a browser and deploys for free |
+| Python | C++ | readability mattered more than speed for this project |
 
 ---
 
-## 9. Known Limitations (Be Honest About These)
+## 9. Limitations
 
-1. **The coach is only as good as a depth-3 search.** Example: it marks the aggressive but sound 4.Ng5 in the Two Knights Defence as an inaccuracy, because the attack pays off beyond its horizon.
-2. **The evaluation is simple.** It knows material and piece placement, but not king safety, pawn structure (doubled or passed pawns) or mobility.
-3. **Explanations cover common beginner patterns only.** They do not yet name forks, pins or skewers; in those cases the coach falls back to "your opponent can win your knight with ...".
-4. **Python is slow.** Depth 4 is the practical limit; depth 5 or more would need a transposition table or a faster language.
-5. **No opening book or endgame knowledge**, so the engine "thinks" from move 1.
-6. **Repetition** is only detected as a threefold repetition, so the engine can occasionally shuffle pieces in winning positions.
-
-Each of these can be listed as future work in the report.
-
----
-
-## 10. Git Workflow and Branches
-
-One branch per phase, so the history mirrors the progress reports:
-
-| Branch | Contains | Status |
-|---|---|---|
-| `phase-1-formulation-board` | Phase 1 commit | Complete |
-| `phase-2-engine` | Phase 1 + Phase 2 | Complete |
-| `phase-3-assistant` | Phases 1 to 3 | Complete |
-| `phase-4-testing-report` | Phases 1 to 4: benchmark, charts, report, demo script | Complete |
-| `main` | Latest completed phase | Updated after each phase is finished and tested |
-
-**Workflow for every phase:** create the branch from the previous phase, build and test on it, commit, then move `main` forward to it. Nothing is pushed to GitHub until it is explicitly requested. The repository is https://github.com/astrilo-monk/ai-project-clg.
+1. **The coach only sees 3 half-moves ahead.** It calls the sound but aggressive 4.Ng5 in the Two Knights Defence an inaccuracy, because the attack pays off past its horizon.
+2. **The evaluation is hand-tuned.** No mobility term yet, and the weights are textbook values, not tuned on games.
+3. **Explanations only cover common patterns.** Forks, pins and skewers aren't named; the coach falls back to "your opponent can win your knight with ...".
+4. **Python is slow.** About 25,000 positions per second, against millions for engines written in C. That's the main reason we can't get close to full-strength Stockfish.
+5. **No opening book or endgame tablebases.** A lot of the improved engine's losses start with an early opening mistake.
+6. **Pruning isn't exact.** Null-move pruning and late move reductions occasionally miss something a full search would see, which is why the coach stays on the exact search.
+7. **Easy and Medium still use the basic engine**, including its old habit of shuffling in won endgames. That's deliberate.
 
 ---
 
-## 11. Viva Answers in One Paragraph Each
+## 10. Git
 
-1. **Why adversarial search?** The opponent chooses every other move and tries to make us lose, so we must assume their best reply. Ordinary search (A*) assumes we control every action.
-2. **How does minimax work?** It searches the game tree to a fixed depth. Leaf positions get the heuristic score. White nodes take the maximum of their children, Black nodes the minimum. The root plays the move with the best backed-up value.
-3. **What does alpha-beta cut, and why is the result unchanged?** It skips moves at a node once it is proven that the opponent already has a better alternative elsewhere (alpha ≥ beta). Those branches could never be reached with best play, so skipping them cannot change the chosen value. Our test checks this.
-4. **Why does move ordering help?** Cut-offs happen as soon as a good enough move is found. Searching captures first (MVV-LVA) finds strong moves early, so more siblings are cut. Measured: 89.2% fewer nodes at depth 4.
-5. **What is the evaluation function?** Material (P 100, N 320, B 330, R 500, Q 900) plus piece-square tables that reward good squares (center knights, castled king, advanced pawns). These are standard values from the Simplified Evaluation Function.
-6. **What is the horizon effect?** Misjudging a position because the refutation lies just beyond the search depth. Quiescence search reduces it by continuing to search captures until the position is quiet.
-7. **How do you decide a blunder?** Centipawn loss: the score of the engine's best move minus the score of the played move, both at depth 3. 200 or more is a blunder, 100 to 199 a mistake, 50 to 99 an inaccuracy.
-8. **Why not just use Stockfish?** Then the project would contain no AI of our own. Stockfish is only used as a benchmark opponent in Phase 4.
-9. **Limitations?** See section 9: depth-limited coach, simple evaluation, no named tactics, Python speed.
-10. **Future work?** Transposition table and iterative deepening for speed, named tactic detection (forks, pins), king safety and pawn structure in the evaluation, an opening book, and possibly a learned evaluation.
+| Branch | Contains |
+|---|---|
+| `phase-1-formulation-board` | Phase 1 |
+| `phase-2-engine` | Phases 1 and 2 |
+| `phase-3-assistant` | Phases 1 to 3 |
+| `phase-4-testing-report` | Phases 1 to 4 |
+| `phase-5-engine-improvements` | The clickable board and Phase 5 |
+| `main` | The latest finished work; Streamlit Cloud deploys from here |
+
+Repo: https://github.com/astrilo-monk/ai-project-clg
+
+---
+
+## 11. Viva Prep
+
+1. **Why adversarial search?** The opponent picks every other move and is trying to beat us, so we have to assume their best reply. Ordinary search like A* assumes we control every action.
+2. **How does minimax work?** Search to a fixed depth, score the leaves with the evaluation, White takes the max, Black the min, play the move with the best backed-up value.
+3. **What does alpha-beta cut, and why doesn't it change the result?** Once alpha >= beta at a node, the opponent already has something better elsewhere, so this line is never reached with best play. Skipping it can't change the answer. Our test checks this.
+4. **Why does move ordering help?** Cut-offs happen as soon as a good enough move turns up. Captures first finds those early. 89.2% fewer nodes at depth 4.
+5. **What's the evaluation function?** Material plus piece-square tables (basic). The advanced one adds the game phase, pawn structure, bishop pair, rook files, king shelter and mop-up.
+6. **What's the horizon effect?** Misjudging a position because the refutation is just past the depth limit. Quiescence search keeps going with captures until things are quiet.
+7. **How do you decide something's a blunder?** Centipawn loss at depth 3: 200+ blunder, 100 to 199 mistake, 50 to 99 inaccuracy.
+8. **Why not just use Stockfish?** Then there'd be no AI of our own in the project. Stockfish is only a benchmark opponent and, in Phase 5, an analysis judge.
+9. **Isn't iterative deepening wasteful?** Each depth costs several times the previous one, so the repeats add little, and each pass gives the next its best move to try first, which makes alpha-beta prune much more. And there's always a move ready.
+10. **What's a transposition table?** A dictionary from positions to what we've already worked out (depth, score, exact or bound, best move), so a position reached by a different move order is only searched once.
+11. **Null-move pruning?** Pass the turn. If we're still above beta, a real move would be too, so cut. Unsafe in zugzwang, so it's off with only king and pawns.
+12. **Why doesn't the coach use the stronger engine?** Its pruning isn't exact, so the coach's two searches could disagree and it would blame good moves.
+13. **Limitations and future work?** Section 9, plus: name tactics, add an opening book and tablebases, tune or learn the evaluation weights, review uploaded games.
+
+Things worth being able to do without notes: run minimax and alpha-beta by hand on a small tree; explain `square_mirror`; compute a centipawn loss from two scores; walk through one explanation rule and the board fact it checks; explain negamax, iterative deepening and null-move pruning with a small example each.
 
 ---
 
@@ -484,40 +559,25 @@ One branch per phase, so the history mirrors the progress reports:
 
 | Term | Meaning |
 |---|---|
-| **Ply** | One half-move (one player's move). Depth 3 = 3 plies |
-| **Centipawn** | 1/100 of a pawn. The unit of all scores |
-| **Node** | One position visited during search |
-| **Heuristic** | A rule of thumb that estimates rather than proves |
-| **Static evaluation** | Scoring a position without looking ahead |
-| **Quiescence search** | Searching captures past the depth limit until the position is quiet |
-| **Horizon effect** | Misjudging a position because the key move is just past the search depth |
-| **MVV-LVA** | Most Valuable Victim, Least Valuable Attacker: capture ordering |
-| **Null move** | Passing the turn, used to ask "what does my opponent threaten?" |
-| **Hanging piece** | A piece that can be captured without fair compensation |
-| **FEN** | A one-line text format for a chess position |
-| **SAN** | Standard Algebraic Notation for moves, e.g. Nf3, exd5, O-O, Qh4# |
-| **Expert system** | AI that reasons with hand-written if-then rules from a domain expert |
+| Ply | One half-move. Depth 3 = 3 plies |
+| Centipawn | 1/100 of a pawn, the unit of every score |
+| Node | One position visited by the search |
+| Heuristic | A rule of thumb that estimates rather than proves |
+| Static evaluation | Scoring a position without looking ahead |
+| Quiescence search | Searching captures past the depth limit until quiet |
+| Horizon effect | Misjudging because the key move is just past the depth |
+| MVV-LVA | Most Valuable Victim, Least Valuable Attacker |
+| Negamax | Minimax with one branch, using min(a, b) = -max(-a, -b) |
+| Transposition | The same position reached through a different move order |
+| Null move | Passing the turn: illegal in chess, useful in search |
+| Zugzwang | A position where every move makes things worse |
+| Hanging piece | A piece that can be taken without fair compensation |
+| Elo | Rating scale; a 75% score is roughly +190 |
+| FEN / SAN | One-line position format / move notation like Nf3, exd5, Qh4# |
+| Expert system | AI that reasons with hand-written if-then rules |
 
 ---
 
-## 13. How This Project Was Actually Built (Read Before the Viva)
+## 13. A Note on How This Was Built
 
-This journal records the real history, because the git history on GitHub records it too. All four phases were built with the help of an AI coding assistant (Claude) in one long working session on 9 and 10 October 2026, and every commit carries a co-author line saying so. Each phase was still built and tested separately, in order, on its own branch, and the problems in section 7 really happened.
-
-That means **your job now is to own the code**, so that you can explain any line of it without notes. Work through this plan before the presentation:
-
-| Day | Study | You are ready when you can |
-|---|---|---|
-| 1 | `docs/formulation.md`, section 2 of this journal | Explain state, actions, utility and PEAS without looking |
-| 2 | `engine/evaluate.py` | Explain piece-square tables and `square_mirror` with a drawing |
-| 3 | `minimax()` in `engine/search.py` | Run minimax by hand on a 3-level tree on paper |
-| 4 | `alphabeta()` | Mark which branches get pruned on that same tree, and say why the result is unchanged |
-| 5 | `ordering.py`, `quiescence()` | Explain MVV-LVA and the horizon effect with a chess example |
-| 6 | `assistant/blunder.py` | Compute a centipawn loss by hand from two scores |
-| 7 | `assistant/explain.py` | Name every rule and the board fact it checks; explain the null move |
-| 8 | `app.py`, `docs/DEMO.md` | Run the full demo twice without looking at the script |
-| 9 | Section 11 (viva answers), `docs/REPORT.md` | Answer all 10 viva questions out loud |
-
-A good test: delete one function (for example `alphabeta`), rewrite it yourself, and run `python -m tests.test_engine`. If the tests pass, you understand it.
-
-If you are asked whether you used AI tools, say yes. Then prove the understanding is yours by explaining alpha-beta on the whiteboard. A student who used a tool and understands every line is in a far stronger position than one whose story falls apart under one question.
+We used an AI coding assistant (Claude) throughout the project, for writing code, running experiments and drafting documentation. The commits from Phases 1 to 4 carry a co-author line that says so. The problems in the development log are real ones we hit along the way. If anyone asks, the honest answer is yes, and the way we show the understanding is ours is by explaining any part of it on a whiteboard.

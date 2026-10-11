@@ -1,294 +1,127 @@
-# AI Chess Assistant for Beginner Players
+# AI Chess Assistant for Beginners
 
-A chess engine built from scratch, plus a teaching layer that helps beginners improve. It plays against you, catches your blunders, explains mistakes in plain English, and suggests better moves.
+**Live app: https://chessassist.streamlit.app/**
 
-- Cost: free
-- Hardware: none
-- Data needed: none
-- Timeline: about 3 weeks, 4 phases
-- Team: buildable solo
+A chess engine we wrote from scratch, plus a coach that watches your moves and tells you, in plain English, what you did wrong and what you should have played instead.
 
-## Quick Start
+We built this for our AI course. The idea came from a simple frustration: when you're learning chess and you lose a piece, Stockfish will happily tell you the position is "-3.2", which is useless if you don't know *why*. So we wanted something that plays against you at your level, catches the blunder, and explains it like a friend who's a bit better at chess would.
+
+The engine itself (search and evaluation) is all our own code. We only use the `python-chess` library for the rules (legal moves, check, checkmate), and Stockfish only shows up as an opponent to benchmark against.
+
+## What it does
+
+- **Play on a real board.** Click a piece and it shows you every square it can go to (rings mean captures). Click a square to move.
+- **Four difficulty levels.** Easy and Medium are deliberately beatable. Hard and Expert use our improved engine.
+- **A coach that reviews every move.** Each move gets a label: Best, Good, Inaccuracy, Mistake or Blunder.
+- **Explanations, not numbers.** Things like *"You moved your queen to h5, where it is undefended and can be captured for free. Your opponent can play Nxh5."* plus the better move drawn as an arrow.
+- **Hints** that come with a reason ("Try Nf3: it develops your knight toward the center").
+- **Take back**, so you can try again after a blunder.
+- **Move history** coloured by how good each of your moves was.
+
+## How it works (short version)
+
+```
+app.py + board_component/     the web app and the clickable board
+assistant/                    the coach: judges moves, explains them, gives hints
+engine/                       the AI: search + evaluation
+python-chess                  the rules of chess
+```
+
+**The engine.** Chess is a two-player, zero-sum game, so we treat it as an adversarial search problem:
+
+- **Minimax** with **alpha-beta pruning** to look ahead.
+- **MVV-LVA move ordering**, so captures get searched first and alpha-beta prunes more.
+- **Quiescence search**, to deal with the horizon effect.
+- An **evaluation function** built from material plus piece-square tables.
+
+For Hard and Expert we later added the techniques real engines use: iterative deepening, a transposition table, null-move pruning, principal variation search, late move reductions, killer moves, and a richer evaluation (pawn structure, king safety, endgame mop-up).
+
+**The coach.** To judge your move, it asks the engine two questions:
+
+1. What's the best move here?
+2. How good is the move you played?
+
+The difference, in hundredths of a pawn ("centipawns"), gives the label. A 200+ drop is a blunder. Then a rule-based expert system figures out *why* the move was bad: you hung a piece, walked into mate, missed a free capture, and so on. We used rules instead of ML on purpose: a teaching tool should never confidently explain something wrong.
+
+## Results
+
+- **Alpha-beta + move ordering searched 96.4% fewer positions** than plain minimax at depth 3, with exactly the same result every time.
+- **Against Stockfish 16 at its weakest settings (90 games):** 33% at depth 2, 65% at depth 3, 80% at depth 4.
+- **The improved engine beat our original one 75%** of the time head to head.
+- **Expert vs Stockfish 19 at skill level 6:** went from 12% to 42% after the improvements.
+
+All the numbers, tables and the story behind them are in [`docs/JOURNAL.md`](docs/JOURNAL.md) and [`docs/REPORT.md`](docs/REPORT.md).
+
+## Running it locally
+
+You need Python 3.10 or newer.
 
 ```bash
 python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Mac/Linux
+venv\Scripts\activate            # Windows
+# source venv/bin/activate       # Mac / Linux
 pip install -r requirements.txt
 
-streamlit run app.py               # play against the engine
-python -m tests.test_engine        # engine tests (9)
-python -m tests.test_assistant     # coach tests (13)
-python -m tests.compare_search     # minimax vs alpha-beta node counts
-python -m tests.benchmark          # vs Stockfish (install Stockfish first; 30 to 60 min)
-python -m tests.make_charts        # report charts
+streamlit run app.py
 ```
 
-## Progress
-
-| Phase | Status |
-|---|---|
-| 1. Formulation + board | Done: `docs/formulation.md`, playable board in `app.py` |
-| 2. Engine | Done: evaluation, minimax, alpha-beta, MVV-LVA ordering, quiescence search. Results in `docs/results/search_comparison.md` |
-| 3. Beginner assistant | Done: move review (Best to Blunder), plain-English explanations, hints, difficulty levels, take back, annotated move history |
-| 4. Testing + report | Done: Stockfish benchmark, charts, final report (`docs/REPORT.md`), demo script (`docs/DEMO.md`) |
-
-**Read `docs/JOURNAL.md`** for the full architecture, how every module works, and the phase-by-phase log. The final report is `docs/REPORT.md`; the demo script is `docs/DEMO.md`.
-
-**Phase 2 headline result:** at depth 3, alpha-beta with move ordering searched **96.4% fewer nodes** than plain minimax (4,296 vs 117,954 across four test positions) and returned the identical evaluation every time.
-
-**Phase 4 headline result:** in 90 games against Stockfish 16 at its three lowest skill levels, the engine scored **33% at depth 2, 65% at depth 3 and 80% at depth 4**. Details in `docs/results/benchmark_summary.md`.
-
----
-
-## 1. The Golden Rule
-
-**Do not use Stockfish as your AI.** Your engine (minimax, alpha-beta, evaluation) must be your own code. Stockfish is allowed only in Phase 4, as an opponent to benchmark against.
-
-**Understand every line before you commit it.** Your professor will ask you to explain alpha-beta pruning and your evaluation function. If an AI agent wrote code you can't explain, rewrite it or ask the agent to explain it until you can.
-
----
-
-## 2. Tech Stack
-
-| Tool | Purpose |
-|---|---|
-| Python 3.10+ | Language |
-| python-chess | Board, legal moves, check, checkmate, SVG drawing |
-| Streamlit | Web interface |
-| Stockfish (free binary) | Benchmark opponent in Phase 4 only |
-| matplotlib | Charts for the report |
-| Git + GitHub | Version control and proof of your work |
-
----
-
-## 3. Setup
+## Tests and experiments
 
 ```bash
-# 1. Create the project folder
-mkdir chess-assistant
-cd chess-assistant
-
-# 2. Create a virtual environment
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-# Mac/Linux
-source venv/bin/activate
-
-# 3. Install packages
-pip install python-chess streamlit matplotlib
-
-# 4. Save dependencies
-pip freeze > requirements.txt
-
-# 5. Start Git
-git init
+python -m tests.test_engine        # 12 engine tests
+python -m tests.test_assistant     # 13 coach tests
+python -m tests.compare_search     # minimax vs alpha-beta node counts
+python -m tests.make_charts        # charts for the report
 ```
 
-Create a GitHub repo and push on day one. **Commit at least once every day you work.** If teammates don't contribute, the commit history proves who did the work.
+These need Stockfish installed (`winget install Stockfish.Stockfish` on Windows, `sudo apt install stockfish` on Linux):
 
----
-
-## 4. Folder Structure
-
-```
-chess-assistant/
-├── app.py                 # Streamlit interface
-├── board_component/
-│   └── index.html         # Click-to-move chessboard (HTML + JavaScript)
-├── engine/
-│   ├── __init__.py
-│   ├── evaluate.py        # Evaluation function
-│   ├── search.py          # Minimax + alpha-beta
-│   └── ordering.py        # Move ordering
-├── assistant/
-│   ├── __init__.py
-│   ├── blunder.py         # Blunder detection
-│   ├── hints.py           # Best move suggestions
-│   └── explain.py         # Plain-English explanations
-├── tests/
-│   ├── test_engine.py     # Engine correctness tests
-│   ├── test_assistant.py  # Coach tests
-│   ├── compare_search.py  # Minimax vs alpha-beta experiment
-│   ├── benchmark.py       # Engine vs Stockfish (Phase 4)
-│   └── make_charts.py     # Report charts
-├── docs/
-│   ├── formulation.md     # Phase 1 write-up
-│   ├── JOURNAL.md         # Architecture + development log
-│   ├── REPORT.md          # Final report
-│   ├── DEMO.md            # 5-minute demo script
-│   └── results/           # Charts and tables
-├── requirements.txt
-└── README.md
+```bash
+python -m tests.benchmark                                   # original benchmark, 30 to 60 min
+python -m tests.engine_match strong:0.5 old:3 --workers 3   # new engine vs old engine
+python -m tests.engine_match strong:2:4 sf:6 --workers 3    # Expert vs Stockfish skill 6
+streamlit run benchmark_live.py                             # watch our engine play Stockfish live
 ```
 
----
-
-## 5. The Four Phases
-
-### Phase 1: Formulation + Board (Days 1 to 4)
-
-**Goal:** a written problem formulation and a playable board.
-
-Tasks:
-- [x] Write `docs/formulation.md` covering:
-  - **State:** a board position (piece placement, side to move, castling rights, en passant)
-  - **Actions:** all legal moves in that position
-  - **Transition model:** applying a move produces a new position
-  - **Terminal test:** checkmate, stalemate, draw by repetition or 50-move rule
-  - **Utility:** +1 win, 0 draw, -1 loss
-  - **Problem type:** two-player, zero-sum, deterministic, fully observable, adversarial search
-  - **Knowledge types:**
-    - Declarative: rules of chess, piece values
-    - Heuristic: positional principles (control the center, develop pieces, king safety)
-    - Procedural: how to search the game tree
-  - **Why AI:** chess has roughly 10^120 possible games, so brute force is impossible. Heuristic search is required.
-- [x] Build `app.py`: draw the board with `chess.svg`, choose your move from a dropdown of legal moves, and have the computer reply with a random legal move for now.
-
-Note: Streamlit has no built-in clickable chessboard. The first version used a dropdown of legal moves; it was later replaced by a click-to-move board (`board_component/index.html`, a small HTML/JavaScript Streamlit component). Python still decides which moves are legal; the board only shows them.
-
-**Progress line for your professor:** "We formulated chess as a two-player adversarial search problem and built a playable board with full rule enforcement."
-
----
-
-### Phase 2: The Engine (Days 5 to 10)
-
-**Goal:** an engine that plays sensible chess. This is the core. If you finish this phase, you pass.
-
-Tasks:
-- [x] `evaluate.py`: material count (P=100, N=320, B=330, R=500, Q=900, K=20000) plus piece-square tables
-- [x] `search.py`: plain minimax with depth limit
-- [x] `search.py`: add alpha-beta pruning
-- [x] `search.py`: count nodes searched, for your report
-- [x] `ordering.py`: search captures and checks first (MVV-LVA ordering) to speed up alpha-beta
-- [x] Connect the engine to `app.py`, replacing the random mover
-
-Bonus done in Phase 2: quiescence search (captures-only search past the depth limit) to reduce the horizon effect.
-
-Warning: Python is slow. Depth 3 to 4 is realistic. Depth 6 will freeze. Move ordering is your speed fix.
-
-**Progress line:** "Our engine plays at depth 4. Alpha-beta reduced nodes searched by X% compared to plain minimax." Use your real numbers.
-
----
-
-### Phase 3: The Beginner Assistant (Days 11 to 16)
-
-**Goal:** the teaching layer. This is what earns top marks and makes the project different from every other chess bot.
-
-Tasks:
-- [x] `blunder.py`: after each player move, compare the evaluation before and after. A drop of more than about 200 centipawns is a blunder, 100 to 200 is a mistake.
-- [x] `hints.py`: a "Hint" button that shows the engine's best move
-- [x] `explain.py`: rule-based explanations, for example:
-  - "Your knight on f3 is now undefended and can be captured."
-  - "You missed a free bishop on c4."
-  - "This move walks into checkmate in 2."
-  - "You moved your queen out early. Develop knights and bishops first."
-- [x] Difficulty levels: Easy (depth 1), Medium (depth 2), Hard (depth 3 or 4)
-- [x] Show a move history with blunders highlighted
-
-**Progress line:** "The assistant now detects mistakes, explains them in plain English, and offers hints."
-
----
-
-### Phase 4: Testing + Report (Days 17 to 21)
-
-**Goal:** evidence and presentation.
-
-Tasks:
-- [x] Download Stockfish from stockfishchess.org (free). Use it through `chess.engine` at its lowest skill levels.
-- [x] `benchmark.py`: play 10 games at each of your depths (2, 3, 4) against low-level Stockfish. Record wins, losses, draws.
-- [x] Measure nodes searched and time per move: minimax vs alpha-beta vs alpha-beta with move ordering
-- [x] Make charts with matplotlib, save to `docs/results/`
-- [x] Write the final report
-- [x] Demo script written (`docs/DEMO.md`)
-- [ ] Build slides and rehearse the demo (your job: rehearse at least twice)
-
-**Future scope (for the report, do not build):** opening book, endgame tablebases, machine-learned evaluation, Monte Carlo Tree Search.
-
-**Progress line:** "The system is evaluated, documented, and ready to present."
-
----
-
-## 6. How to Use Your AI Agent
-
-### Step 1: Paste this context first, at the start of every new session
+## Project layout
 
 ```
-I'm building an AI Chess Assistant for Beginner Players as a university AI course project.
-
-Rules for you:
-- Python 3, python-chess for board rules, Streamlit for the UI.
-- I must write my own engine: minimax, alpha-beta pruning, evaluation function. Never use Stockfish for move selection. Stockfish is only for benchmarking.
-- Explain every function you write in simple terms, because I have to defend this code in front of my professor.
-- Keep code simple and readable over clever and fast.
-- Follow this folder structure: [paste section 4 of the README]
-- Do one task at a time. After each task, tell me how to test it.
-
-Current phase: [Phase number and name]
-What's already done: [list completed tasks]
+app.py                     Streamlit app
+board_component/           click-to-move board (plain HTML + JavaScript, no build step)
+benchmark_live.py          live engine-vs-Stockfish viewer
+engine/
+  evaluate.py              evaluation functions (basic and advanced)
+  search.py                minimax, alpha-beta, quiescence (the textbook version)
+  strong.py                improved engine used on Hard and Expert
+  ordering.py              MVV-LVA move ordering
+assistant/
+  blunder.py               move review: centipawn loss -> label
+  explain.py               rule-based explanations
+  hints.py                 hints with reasons
+tests/                     tests, benchmarks, matches, chart scripts
+docs/
+  formulation.md           problem formulation (state, actions, PEAS...)
+  JOURNAL.md               how everything works + our development log
+  REPORT.md                final report
+  DEMO.md                  5-minute demo script
+  results/                 CSVs, tables, charts, every benchmark game
+gist.md                    the whole project on one page, for presenting
 ```
 
-### Step 2: Use these prompts, one at a time
+## Deployment
 
-**Phase 1**
-1. `Help me write docs/formulation.md. Ask me questions if needed, but cover state, actions, transition model, terminal test, utility, problem type, knowledge types, and why AI is needed.`
-2. `Write app.py: a Streamlit app that shows the board using chess.svg, lets me pick a move from a dropdown of legal moves, and replies with a random legal move. Store the board in st.session_state.`
+The live app runs on Streamlit Community Cloud (free) straight from this repo's `main` branch. Every push to `main` redeploys it. If the app has been idle for a while, it goes to sleep and takes about 30 seconds to wake up on the first visit.
 
-**Phase 2**
-3. `Write engine/evaluate.py with material values and piece-square tables for all pieces. Explain what a piece-square table is.`
-4. `Write plain minimax in engine/search.py with a depth limit and a node counter. Explain how it works with a small example.`
-5. `Add alpha-beta pruning to search.py as a separate function so I can compare both. Explain alpha and beta in simple terms.`
-6. `Write engine/ordering.py using MVV-LVA so captures and checks are searched first. Show me how much it reduces nodes.`
-7. `Connect the engine to app.py so the computer plays the best move at a chosen depth.`
+## What we'd add next
 
-**Phase 3**
-8. `Write assistant/blunder.py that classifies my last move as good, inaccuracy, mistake, or blunder based on the evaluation change.`
-9. `Write assistant/explain.py with rule-based explanations: hanging pieces, missed captures, walking into mate, early queen moves. Return a plain-English sentence.`
-10. `Add a Hint button, a difficulty selector (Easy/Medium/Hard), and a move history with blunders highlighted to app.py.`
+- Naming tactics in explanations (forks, pins, skewers)
+- An opening book (a lot of our engine's losses start with an early opening mistake)
+- Tuning the evaluation weights on real games instead of using textbook values
+- Letting you upload your own games (PGN) and have the coach review them
 
-**Phase 4**
-11. `Write tests/benchmark.py that plays my engine against Stockfish at skill level 0 to 2 for N games at depths 2, 3, and 4, and saves results to CSV.`
-12. `Write a script that compares nodes searched and time per move for minimax, alpha-beta, and alpha-beta with move ordering, and plots the results.`
-13. `Help me write the final report structure for an AI course: introduction, problem formulation, knowledge representation, techniques, implementation, results, limitations, future scope.`
+## Credits
 
-### Step 3: When something breaks
-
-```
-This code gives this error: [paste error]
-Here is the file: [paste file]
-Explain what caused it before fixing it.
-```
-
-### Step 4: Before every progress meeting
-
-```
-Quiz me on [topic, e.g. alpha-beta pruning] like a strict professor would. Ask one question at a time and correct my answers.
-```
-
----
-
-## 7. Viva Questions You Must Be Able to Answer
-
-1. Why is chess an adversarial search problem and not a regular search problem?
-2. How does minimax work? Draw a small tree.
-3. What does alpha-beta pruning cut, and why doesn't it change the result?
-4. Why does move ordering make alpha-beta faster?
-5. What is your evaluation function, and why those piece values?
-6. What is the horizon effect? Does your engine suffer from it?
-7. How do you decide something is a blunder?
-8. Why didn't you just use Stockfish?
-9. What are the limitations of your engine?
-10. What would you add with more time?
-
-If you can't answer one of these confidently, that's your study task for the day.
-
----
-
-## 8. Daily Checklist
-
-- [ ] Worked on the current phase task
-- [ ] Tested it
-- [ ] Understood every line written today
-- [ ] Committed and pushed to GitHub
+- [python-chess](https://python-chess.readthedocs.io) for the rules and board drawing
+- [Stockfish](https://stockfishchess.org), only as a benchmark opponent, never to pick our moves
+- Piece values and piece-square tables from Tomasz Michniewski's *Simplified Evaluation Function* (Chess Programming Wiki)
+- We used an AI coding assistant (Claude) while building this; the commit history and the journal say where.

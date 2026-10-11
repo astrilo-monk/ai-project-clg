@@ -4,7 +4,7 @@ Rehearse this at least twice. Every position below is reproducible, so nothing d
 
 ## Before you start (10 minutes early)
 
-- [ ] `streamlit run app.py` running locally (or the deployed link opened, so it is awake)
+- [ ] `streamlit run app.py` running locally, or https://chessassist.streamlit.app/ opened so it is awake
 - [ ] Browser zoom at 100 to 110%, sidebar visible
 - [ ] Difficulty on **Medium**, Coach mode **on**, playing **White**
 - [ ] `docs/results/chart_nodes.png` and `chart_benchmark.png` open in another tab

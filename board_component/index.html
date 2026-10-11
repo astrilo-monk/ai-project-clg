@@ -1,0 +1,194 @@
+<!doctype html>
+<!--
+  Clickable chessboard for app.py (a Streamlit "custom component").
+
+  Python sends: fen, orientation, the list of legal moves (UCI, e.g. "e2e4"),
+  last move, check square, arrows, and the piece pictures.
+  This page sends back: the move the user clicked, e.g. {uci: "e2e4", id: "..."}.
+
+  The board knows no chess rules. It only lets you play moves that are in
+  the legal list Python gave it, so an illegal move is impossible.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font-family: sans-serif; }
+  #wrap { position: relative; width: 100%; max-width: 640px; aspect-ratio: 1; user-select: none; }
+  #board { display: grid; grid-template: repeat(8, 1fr) / repeat(8, 1fr); width: 100%; height: 100%;
+           border-radius: 4px; overflow: hidden; }
+  .sq { position: relative; }
+  .light { background-color: #f0d9b5; }
+  .dark { background-color: #b58863; }
+  .last { background-image: linear-gradient(rgba(155, 199, 0, .41), rgba(155, 199, 0, .41)); }
+  .selected { background-image: linear-gradient(rgba(20, 85, 30, .5), rgba(20, 85, 30, .5)); }
+  .check { background-image: radial-gradient(#ff0000 0%, #e70000 25%, rgba(169, 0, 0, 0) 89%); }
+  .movable, .target { cursor: pointer; }
+  .target:hover { background-image: linear-gradient(rgba(20, 85, 30, .3), rgba(20, 85, 30, .3)); }
+  .sq svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  /* A dot on empty squares you can move to, a ring around pieces you can capture. */
+  .target::after { content: ""; position: absolute; left: 50%; top: 50%; width: 28%; height: 28%;
+                   transform: translate(-50%, -50%); border-radius: 50%; background: rgba(20, 85, 30, .5); }
+  .target.capture::after { width: 100%; height: 100%; border-radius: 0;
+                           background: radial-gradient(transparent 0 70%, rgba(20, 85, 30, .5) 71%); }
+  .coord { position: absolute; font-size: 13px; font-weight: 700; pointer-events: none; }
+  .light .coord { color: #b58863; }
+  .dark .coord { color: #f0d9b5; }
+  .rank { top: 2px; left: 3px; }
+  .file { bottom: 1px; right: 3px; }
+  #arrows { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #promo { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+           background: rgba(0, 0, 0, .5); }
+  #promo button { width: 22%; aspect-ratio: 1; margin: 1%; border: 0; border-radius: 50%; cursor: pointer;
+                  background: #f0d9b5; position: relative; }
+  #promo button:hover { background: #ffe7a3; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="board"></div>
+  <svg id="arrows" viewBox="0 0 8 8"></svg>
+  <div id="promo"></div>
+</div>
+<script>
+const FILES = "abcdefgh";
+let args = null;        // latest arguments from Python
+let pieces = {};        // square name -> piece letter, e.g. {"e1": "K", "e8": "k"}
+let selected = null;    // square of the piece the user picked up, e.g. "e2"
+let pendingFen = null;  // position we just moved from; Python may re-send it once before it catches up
+
+// ---- Talking to Streamlit (the component protocol is plain postMessage) ----
+function send(type, data) {
+  window.parent.postMessage({ isStreamlitMessage: true, type, ...data }, "*");
+}
+
+window.addEventListener("message", (event) => {
+  if (event.data.type !== "streamlit:render") return;
+  const a = event.data.args;
+  if (a.fen === pendingFen) return;  // stale copy of the old position: keep showing our move
+  pendingFen = null;
+  if (!args || a.fen !== args.fen) selected = null;
+  args = a;
+  pieces = parseFen(a.fen);
+  draw();
+});
+
+new ResizeObserver(() => send("streamlit:setFrameHeight", { height: document.getElementById("wrap").offsetHeight }))
+  .observe(document.getElementById("wrap"));
+send("streamlit:componentReady", { apiVersion: 1 });
+
+// ---- Board geometry ----
+function parseFen(fen) {
+  const result = {};
+  fen.split(" ")[0].split("/").forEach((row, r) => {
+    let file = 0;
+    for (const ch of row) {
+      if (/\d/.test(ch)) file += Number(ch);
+      else result[FILES[file++] + (8 - r)] = ch;
+    }
+  });
+  return result;
+}
+
+// Screen position (col, row from the top-left) <-> square name, depending on which side is at the bottom.
+function squareAt(col, row) {
+  return args.orientation === "white" ? FILES[col] + (8 - row) : FILES[7 - col] + (row + 1);
+}
+function position(square) {
+  const file = FILES.indexOf(square[0]), rank = Number(square[1]) - 1;
+  return args.orientation === "white" ? [file, 7 - rank] : [7 - file, rank];
+}
+
+// ---- Drawing ----
+function draw() {
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  const targets = selected ? args.legal.filter((u) => u.startsWith(selected)).map((u) => u.slice(2, 4)) : [];
+
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const sq = squareAt(col, row);
+      const el = document.createElement("div");
+      el.className = "sq " + ((col + row) % 2 ? "dark" : "light");
+      if (args.lastmove && args.lastmove.includes(sq)) el.classList.add("last");
+      if (sq === args.check) el.classList.add("check");
+      if (sq === selected) el.classList.add("selected");
+      if (args.legal.some((u) => u.startsWith(sq))) el.classList.add("movable");
+      if (targets.includes(sq)) el.classList.add("target", ...(pieces[sq] ? ["capture"] : []));
+      if (pieces[sq]) el.insertAdjacentHTML("beforeend", args.pieces[pieces[sq]]);
+      if (col === 0) el.insertAdjacentHTML("beforeend", `<span class="coord rank">${sq[1]}</span>`);
+      if (row === 7) el.insertAdjacentHTML("beforeend", `<span class="coord file">${sq[0]}</span>`);
+      el.onclick = () => clickSquare(sq);
+      board.appendChild(el);
+    }
+  }
+  drawArrows();
+}
+
+function drawArrows() {
+  const svg = document.getElementById("arrows");
+  svg.innerHTML = (args.arrows || []).map(([from, to, color]) => {
+    const [x1, y1] = position(from).map((v) => v + 0.5);
+    const [x2, y2] = position(to).map((v) => v + 0.5);
+    const len = Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+    const hx = x2 - ux * 0.45, hy = y2 - uy * 0.45;  // where the head starts
+    const head = [[x2 - ux * 0.1, y2 - uy * 0.1], [hx - uy * 0.25, hy + ux * 0.25], [hx + uy * 0.25, hy - ux * 0.25]];
+    return `<line x1="${x1}" y1="${y1}" x2="${hx}" y2="${hy}" stroke="${color}" stroke-width="0.17" opacity="0.8"/>` +
+           `<polygon points="${head.map((p) => p.join(",")).join(" ")}" fill="${color}" opacity="0.8"/>`;
+  }).join("");
+}
+
+// ---- Clicking ----
+function clickSquare(sq) {
+  if (!args.interactive) return;
+  const moves = selected ? args.legal.filter((u) => u.startsWith(selected + sq)) : [];
+  if (moves.length > 1) return showPromotion(moves);  // a pawn reaching the last rank: 4 choices
+  if (moves.length === 1) return play(moves[0]);
+  // Otherwise pick up this piece (if it has moves), or put the current one down.
+  selected = sq !== selected && args.legal.some((u) => u.startsWith(sq)) ? sq : null;
+  draw();
+}
+
+function showPromotion(moves) {
+  const promo = document.getElementById("promo");
+  const white = pieces[selected] === pieces[selected].toUpperCase();
+  promo.innerHTML = "";
+  for (const letter of "qrbn") {
+    const button = document.createElement("button");
+    button.innerHTML = args.pieces[white ? letter.toUpperCase() : letter];
+    button.onclick = (e) => { e.stopPropagation(); promo.style.display = "none"; play(moves.find((u) => u[4] === letter)); };
+    promo.appendChild(button);
+  }
+  promo.onclick = () => { promo.style.display = "none"; };  // click outside the choices to cancel
+  promo.style.display = "flex";
+}
+
+function play(uci) {
+  // Show the move straight away, while Python reviews it and the engine thinks.
+  pendingFen = args.fen;
+  movePieceLocally(uci);
+  args = { ...args, interactive: false, legal: [], lastmove: [uci.slice(0, 2), uci.slice(2, 4)], check: null, arrows: [] };
+  selected = null;
+  draw();
+  // The id makes every click unique, so Python never plays the same click twice.
+  send("streamlit:setComponentValue", { value: { uci, id: `${Date.now()}-${Math.random()}` }, dataType: "json" });
+}
+
+// Only for the instant preview; the real position always comes back from Python.
+function movePieceLocally(uci) {
+  const from = uci.slice(0, 2), to = uci.slice(2, 4);
+  let piece = pieces[from];
+  delete pieces[from];
+  const kind = piece.toLowerCase();
+  if (kind === "p" && from[0] !== to[0] && !pieces[to]) delete pieces[to[0] + from[1]];  // en passant
+  if (kind === "k" && Math.abs(FILES.indexOf(to[0]) - FILES.indexOf(from[0])) === 2) {   // castling moves the rook too
+    const [rookFrom, rookTo] = to[0] === "g" ? ["h", "f"] : ["a", "d"];
+    pieces[rookTo + from[1]] = pieces[rookFrom + from[1]];
+    delete pieces[rookFrom + from[1]];
+  }
+  if (uci.length === 5) piece = piece === piece.toUpperCase() ? uci[4].toUpperCase() : uci[4];
+  pieces[to] = piece;
+}
+</script>
+</body>
+</html>

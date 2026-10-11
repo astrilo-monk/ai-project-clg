@@ -13,10 +13,12 @@ Phase 3 version: the beginner assistant.
 """
 
 import html
+from pathlib import Path
 
 import chess
 import chess.svg
 import streamlit as st
+import streamlit.components.v1 as components
 
 from assistant.blunder import LABELS, review_move
 from assistant.explain import explain_move
@@ -45,6 +47,12 @@ LABEL_COLORS = {
 
 ARROW_BETTER = "#15781b"
 ARROW_PLAYED = "#c62828"
+
+# Clickable board: a small HTML/JavaScript page in board_component/ (Streamlit has
+# no built-in one). It draws the pieces with python-chess's own SVG pictures and
+# only allows moves from the legal list we pass in.
+chessboard = components.declare_component("chessboard", path=str(Path(__file__).parent / "board_component"))
+PIECE_SVGS = {s: chess.svg.piece(chess.Piece.from_symbol(s)) for s in "PNBRQKpnbrqk"}
 
 
 # ---------------------------------------------------------------------------
@@ -181,19 +189,29 @@ st.title("AI Chess Assistant for Beginners")
 left, right = st.columns([3, 2], gap="large")
 
 with left:
-    arrows = []
     hint = st.session_state.hint
-    if hint and board.turn == player_color:
-        arrows.append(chess.svg.Arrow(hint.move.from_square, hint.move.to_square, color=ARROW_BETTER))
-    svg = chess.svg.board(
-        board,
-        orientation=player_color,
-        lastmove=board.peek() if board.move_stack else None,
-        check=board.king(board.turn) if board.is_check() else None,
-        arrows=arrows,
-        size=480,
+    players_turn = not board.is_game_over() and board.turn == player_color
+    last = board.peek() if board.move_stack else None
+    clicked = chessboard(
+        fen=board.fen(),
+        orientation="white" if player_color == chess.WHITE else "black",
+        interactive=players_turn,
+        legal=[m.uci() for m in board.legal_moves] if players_turn else [],
+        lastmove=[chess.square_name(last.from_square), chess.square_name(last.to_square)] if last else None,
+        check=chess.square_name(board.king(board.turn)) if board.is_check() else None,
+        arrows=[[chess.square_name(hint.move.from_square), chess.square_name(hint.move.to_square), ARROW_BETTER]]
+        if hint and players_turn else [],
+        pieces=PIECE_SVGS,
+        key="board_clicks",  # not "board": that name already holds the game in session_state
+        default=None,
     )
-    st.markdown(f'<div style="max-width:480px">{svg}</div>', unsafe_allow_html=True)
+    # The board keeps returning its last click on every rerun, so only act on a new one.
+    if clicked and clicked["id"] != st.session_state.get("last_click_id"):
+        st.session_state.last_click_id = clicked["id"]
+        move = chess.Move.from_uci(clicked["uci"])
+        if players_turn and move in board.legal_moves:
+            play_player_move(move)
+            st.rerun()
 
     result = st.session_state.last_search
     if result is not None:
@@ -205,20 +223,23 @@ with left:
 with right:
     st.subheader(game_status(board))
 
-    if not board.is_game_over() and board.turn == player_color:
-        moves = {board.san(m): m for m in board.legal_moves}
-        choice = st.selectbox("Your move", sorted(moves), index=None, placeholder="Choose or type a move, e.g. e4")
-        b1, b2, b3 = st.columns(3)
-        if b1.button("Play move", type="primary", disabled=choice is None, use_container_width=True):
-            play_player_move(moves[choice])
-            st.rerun()
-        if b2.button("Hint", use_container_width=True):
+    if players_turn:
+        st.caption("Click a piece to see where it can go, then click a highlighted square to move it.")
+        b1, b2 = st.columns(2)
+        if b1.button("Hint", use_container_width=True):
             with st.spinner("Looking for a good move..."):
                 st.session_state.hint = get_hint(board)
             st.rerun()
-        if b3.button("Take back", disabled=not board.move_stack, use_container_width=True):
+        if b2.button("Take back", disabled=not board.move_stack, use_container_width=True):
             take_back()
             st.rerun()
+        # Keyboard fallback for anyone who can't use the mouse.
+        with st.expander("Or type your move"):
+            moves = {board.san(m): m for m in board.legal_moves}
+            choice = st.selectbox("Your move", sorted(moves), index=None, placeholder="e.g. e4 or Nf3")
+            if st.button("Play move", type="primary", disabled=choice is None):
+                play_player_move(moves[choice])
+                st.rerun()
 
         if hint:
             st.success(f"Hint: {hint.text}")

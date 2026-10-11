@@ -55,6 +55,7 @@ flowchart TB
 ```
 chess-assistant/
 ├── app.py                    Layer 4: Streamlit web interface
+├── board_component/          Layer 4: click-to-move chessboard (HTML + JavaScript)
 ├── assistant/                Layer 3: the teaching layer (Phase 3)
 │   ├── blunder.py            MoveReview: centipawn loss and Best..Blunder label
 │   ├── explain.py            Rule-based expert system, Feedback sentences
@@ -81,7 +82,7 @@ chess-assistant/
 
 ### 2.3 What Happens When You Play a Move
 
-This is the full journey of one click on **Play move**:
+This is the full journey of one move played on the board:
 
 ```mermaid
 sequenceDiagram
@@ -90,7 +91,7 @@ sequenceDiagram
     participant B as assistant/blunder.py
     participant X as assistant/explain.py
     participant E as engine/search.py
-    U->>A: chooses "Qh5", clicks Play move
+    U->>A: clicks the queen, then h5
     A->>B: review_move(position, Qh5)
     B->>E: find_best_move(position, depth 3)
     E-->>B: best = e5, score
@@ -281,7 +282,7 @@ This module is a **rule-based expert system**. The engine decides **if** a move 
 | Hard | 3 | On | Sees simple combinations |
 | Expert | 4 | On | Strongest, about 1 to 2 seconds per move |
 
-**Screen layout:** board (with the last move highlighted, check shown in red, hint arrow in green) and engine statistics on the left. On the right: move selector, Play move / Hint / Take back, the coach panel (label badge, explanation, better move, tips, and a small board of the position before your move with a red arrow for your move and a green one for the better move), and the annotated move list with a summary such as `Best 3 Good 5 Inaccuracy 1 Mistake 0 Blunder 1`.
+**Screen layout:** a clickable board (click a piece to see dots on the squares it can reach, click a dot to move; last move highlighted, check shown in red, hint arrow in green, a picker for pawn promotion) and engine statistics on the left. On the right: Hint / Take back, an "Or type your move" box for keyboard users, the coach panel (label badge, explanation, better move, tips, and a small board of the position before your move with a red arrow for your move and a green one for the better move), and the annotated move list with a summary such as `Best 3 Good 5 Inaccuracy 1 Mistake 0 Blunder 1`.
 
 **Take back** removes the engine's reply and your move, and deletes their reviews, so you can retry after a blunder. This is a deliberate teaching feature.
 
@@ -362,6 +363,7 @@ All four phases were built on 9 and 10 October 2026 (see section 13). Each phase
 **Problems and fixes**
 - *python-chess would not install* on the system Python (a setuptools error: `install_layout`). **Fix:** use a virtual environment with up-to-date pip and setuptools. This is also why the README tells you to create a venv.
 - *Streamlit has no clickable chessboard.* **Decision:** choose moves from a dropdown of legal moves. It is reliable and makes illegal moves impossible.
+- *Later: the dropdown felt nothing like real chess.* **Fix:** a click-to-move board in `board_component/index.html`, a Streamlit custom component written in plain HTML and JavaScript (no build step). Python sends the position and the list of legal moves; the board draws them and sends back the clicked move, which Python checks again before playing. Two bugs came up while building it: (1) giving the board the widget key `"board"` overwrote the game stored in `st.session_state.board`, so the key is now `"board_clicks"`; (2) a component keeps returning its last value on every rerun, so after Take back the same click would have been replayed. Each click now carries a unique id and Python ignores ids it has already handled.
 
 ### Phase 2: The Engine (branch `phase-2-engine`)
 
@@ -429,7 +431,7 @@ All four phases were built on 9 and 10 October 2026 (see section 13). Each phase
 | Alpha-beta kept as a separate function from minimax | Only alpha-beta | Lets us measure the improvement on identical trees |
 | Fixed coach depth 3 | Coach at opponent depth | Consistent judging on every level; depth 3 is fast enough (about 1 s) |
 | Rule-based explanations | ML / language model | Correct, predictable and traceable; no training data needed |
-| Streamlit | pygame | Runs in a browser, easy to demo, less UI code; cost is no drag-and-drop |
+| Streamlit | pygame | Runs in a browser, easy to demo, less UI code; the clickable board needed one small custom component |
 | Python | C++ | Readability for a course project matters more than speed |
 
 ---

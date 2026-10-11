@@ -96,6 +96,8 @@ Create a GitHub repo and push on day one. **Commit at least once every day you w
 ```
 chess-assistant/
 ├── app.py                 # Streamlit interface
+├── board_component/
+│   └── index.html         # Click-to-move chessboard (HTML + JavaScript)
 ├── engine/
 │   ├── __init__.py
 │   ├── evaluate.py        # Evaluation function
@@ -145,7 +147,7 @@ Tasks:
   - **Why AI:** chess has roughly 10^120 possible games, so brute force is impossible. Heuristic search is required.
 - [x] Build `app.py`: draw the board with `chess.svg`, choose your move from a dropdown of legal moves, and have the computer reply with a random legal move for now.
 
-Note: Streamlit has no built-in clickable chessboard. A dropdown of legal moves is simple and reliable. If you want click-to-move later, switch to pygame.
+Note: Streamlit has no built-in clickable chessboard. The first version used a dropdown of legal moves; it was later replaced by a click-to-move board (`board_component/index.html`, a small HTML/JavaScript Streamlit component). Python still decides which moves are legal; the board only shows them.
 
 **Progress line for your professor:** "We formulated chess as a two-player adversarial search problem and built a playable board with full rule enforcement."
 
